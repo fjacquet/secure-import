@@ -9,7 +9,7 @@ go test -race ./...
 make build-all    # 5 cibles, sans CGO
 ```
 
-Le module n'a aucune dépendance (bibliothèque standard seule) : n'en ajoutez pas sans
+La seule dépendance directe est cobra (ADR 0008) : n'en ajoutez pas sans
 raison forte.
 
 ## Règles du dépôt

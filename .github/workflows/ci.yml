@@ -22,7 +22,6 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: false # no go.sum: the project is stdlib-only
       - name: Formatting
         run: make check
       - name: Vet
@@ -45,6 +44,5 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: false
       - name: Test
         run: go test -count=1 ./...

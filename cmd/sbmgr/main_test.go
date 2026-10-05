@@ -44,9 +44,9 @@ func TestUsageErrorsExitWithTwo(t *testing.T) {
 }
 
 func TestHelpExitsZeroAndPointsToProbe(t *testing.T) {
-	code, _, stderr := exec(t, "-h")
-	if code != 0 || !strings.Contains(stderr, "-a probe") || strings.Contains(stderr, "not validated") {
-		t.Errorf("code = %d, stderr = %q", code, stderr)
+	code, stdout, _ := exec(t, "-h")
+	if code != 0 || !strings.Contains(stdout, "-a probe") || strings.Contains(stdout, "not validated") {
+		t.Errorf("code = %d, stdout = %q", code, stdout)
 	}
 }
 
@@ -132,6 +132,42 @@ func TestProbeIsAnActionAndWritesChecksAndDump(t *testing.T) {
 func TestVersionFlagPrintsVersionAndExitsZero(t *testing.T) {
 	code, stdout, _ := exec(t, "--version")
 	if code != 0 || !strings.HasPrefix(stdout, "sbmgr ") || !strings.Contains(stdout, version) {
+		t.Errorf("code = %d, stdout = %q", code, stdout)
+	}
+}
+
+func TestHelpListsEachOptionOnceWithItsShortForm(t *testing.T) {
+	_, stdout, _ := exec(t, "-h")
+	if !strings.Contains(stdout, "-i, --input") || strings.Contains(stdout, " -input string") {
+		t.Errorf("help:\n%s", stdout)
+	}
+}
+
+func TestCompletionScriptsAreGenerated(t *testing.T) {
+	for _, sh := range []string{"bash", "zsh", "fish", "powershell"} {
+		code, stdout, _ := exec(t, "completion", sh)
+		if code != 0 || !strings.Contains(stdout, "sbmgr") {
+			t.Errorf("%s: code = %d, stdout has %d bytes", sh, code, len(stdout))
+		}
+	}
+}
+
+func TestFlagValuesAreCompleted(t *testing.T) {
+	cases := []struct{ flag, want string }{
+		{"-a", "db_import"}, {"-a", "probe"}, {"--platform", "supermicro"},
+		{"--method", "standard"}, {"--reset-type", "ResetDB"}, {"-f", "json"},
+	}
+	for _, tc := range cases {
+		_, stdout, _ := exec(t, "__complete", tc.flag, "")
+		if !strings.Contains(stdout, tc.want) {
+			t.Errorf("completion of %s lacks %s: %q", tc.flag, tc.want, stdout)
+		}
+	}
+}
+
+func TestVersionSubcommand(t *testing.T) {
+	code, stdout, _ := exec(t, "version")
+	if code != 0 || !strings.HasPrefix(stdout, "sbmgr ") {
 		t.Errorf("code = %d, stdout = %q", code, stdout)
 	}
 }
