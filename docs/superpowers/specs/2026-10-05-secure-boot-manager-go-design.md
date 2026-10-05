@@ -111,8 +111,9 @@ méthodes non gérées. `Status` porte aussi `PendingPolicy` (valeur en attente 
   simultanées maximum par BMC ; une session fuyante finit par bloquer l'accès.
 - **ExtendedInfo** : les 3 regex insensibles à la casse, indépendantes de la version
   (`^Base\.\d+\.\d+\.Success$`, `^i?DRAC\.\d+\.\d+\.SYS4\d+$`,
-  `^Bios\.\d+\.\d+\.BiosPropertyModified$`) ; détection de « restart / reboot »
-  dans `Resolution`/`Message`.
+  `^Bios\.\d+\.\d+\.BiosPropertyModified$`) ; **un message de gravité `Critical` n'est jamais
+  un succès** (`IDRAC.2.9.SYS403`, « resource not found », correspond au motif `SYS4xx` mais
+  est une erreur) ; détection de « restart / reboot » dans `Resolution`/`Message`.
 - **ETag** : le `PATCH` part sans `If-Match` ; sur `428 Precondition Required`, relecture
   de la ressource, reprise de son `ETag` et nouvel essai (une fois).
 - **Tâches** : sur 202, suivre le `Location` tel quel (URI opaque) ; respecter

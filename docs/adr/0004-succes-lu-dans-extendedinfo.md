@@ -19,7 +19,10 @@ pas** du succès : chaque driver interprète la réponse.
 
 - Dell : regex insensibles à la casse et indépendantes de la version
   (`^Base\.\d+\.\d+\.Success$`, `^i?DRAC\.\d+\.\d+\.SYS4\d+$`,
-  `^Bios\.\d+\.\d+\.BiosPropertyModified$`), avec repli sur le statut HTTP.
+  `^Bios\.\d+\.\d+\.BiosPropertyModified$`), avec repli sur le statut HTTP. Un message de
+  gravité `Critical` n'est jamais un succès : le motif `SYS4xx` reconnaît aussi
+  `IDRAC.2.9.SYS403` (« resource not found »), une erreur que le script Python pouvait
+  prendre pour un succès.
 - Lenovo : `RebootRequired` = succès en attente de reboot ; `PhysicalPresenceError` =
   échec ; message inconnu = échec « réponse inconnue ».
 - Supermicro : 201 attendu pour l'import ; changement en attente lu dans `Bios/SD`.
