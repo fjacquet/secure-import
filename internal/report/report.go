@@ -28,6 +28,25 @@ type Result struct {
 	Message         string `json:"message"`
 	Error           string `json:"error"`
 	CertCount       int    `json:"certificate_count"`
+
+	// Checks is filled by the probe action only; Capture holds its redacted raw
+	// responses (written to a separate file, never into the report).
+	Checks  []Check                    `json:"checks,omitempty"`
+	Capture map[string]json.RawMessage `json:"-"`
+}
+
+// Check statuses of the probe action.
+const (
+	CheckOK     = "OK"
+	CheckFail   = "FAIL"
+	CheckAbsent = "ABSENT" // the BMC does not expose it; not an error by itself
+)
+
+// Check is one verdict of the probe action.
+type Check struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
 }
 
 // New returns a Result carrying the same defaults as the Python script.
@@ -58,6 +77,19 @@ func cell(s string) string {
 // actions) plus a final Platform column.
 func WriteCSV(w io.Writer, action string, results []Result) error {
 	cw := csv.NewWriter(w)
+	if action == "probe" {
+		_ = cw.Write([]string{"IP Address", "Platform", "Check", "Status", "Detail"})
+		for _, r := range results {
+			for _, c := range r.Checks {
+				_ = cw.Write([]string{r.IP, r.Platform, c.Name, c.Status, cell(c.Detail)})
+			}
+			if len(r.Checks) == 0 { // the host could not even be reached
+				_ = cw.Write([]string{r.IP, r.Platform, "connection", CheckFail, cell(r.Error)})
+			}
+		}
+		cw.Flush()
+		return cw.Error()
+	}
 	if strings.HasPrefix(action, "db_") {
 		_ = cw.Write([]string{"IP Address", "Action", "Success", "Message", "Error", "Certificate Count", "Platform"})
 		for _, r := range results {

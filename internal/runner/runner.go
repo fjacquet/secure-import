@@ -10,6 +10,7 @@ import (
 	"sbmgr/internal/actions"
 	"sbmgr/internal/detect"
 	"sbmgr/internal/inventory"
+	"sbmgr/internal/probe"
 	"sbmgr/internal/redfish"
 	"sbmgr/internal/report"
 )
@@ -82,6 +83,11 @@ func one(ctx context.Context, h inventory.Host, opt Options) (res report.Result)
 		return res
 	}
 	defer c.Logout(context.WithoutCancel(ctx))
+	if opt.Action == "probe" {
+		rep := probe.Run(ctx, c, opt.Platform, opt.Method, opt.Params.Capture)
+		res.Platform, res.Checks, res.Capture, res.Success = rep.Platform, rep.Checks, rep.Capture, rep.OK()
+		return res
+	}
 	p, err := detect.New(ctx, c, opt.Platform, opt.Method)
 	if err != nil {
 		res.Error = err.Error()

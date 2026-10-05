@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -27,13 +28,15 @@ import (
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 type options struct {
-	input, output, action, format                            string
-	platform, method, certURI, certFile, resetType           string
-	caFile                                                   string
-	concurrency, retries                                     int
-	timeout, taskTimeout                                     time.Duration
-	noWait, verifyTLS, verbose, dryRun, confirm, showVersion bool
+	input, output, action, format                             string
+	platform, method, certURI, certFile, resetType, probeDump string
+	caFile                                                    string
+	concurrency, retries                                      int
+	timeout, taskTimeout                                      time.Duration
+	noWait, verifyTLS, verbose, dryRun, confirm, showVersion  bool
 }
+
+const probeAction = "probe" // read-only: checks what each BMC answers
 
 // resetTypes: the first three are the DMTF values; ResetPK, ResetKEK, ResetDB and
 // ResetDBX are documented by the Dell iDRAC9 OpenAPI (ResetDB only touches "db").
@@ -53,8 +56,8 @@ func (o *options) validate() string {
 		return "-o/--output is required"
 	case o.action == "":
 		return "-a/--action is required"
-	case !slices.Contains(platform.AllActions, o.action):
-		return fmt.Sprintf("unknown action %q (choose one of: %s)", o.action, strings.Join(platform.AllActions, ", "))
+	case o.action != probeAction && !slices.Contains(platform.AllActions, o.action):
+		return fmt.Sprintf("unknown action %q (choose one of: %s, %s)", o.action, strings.Join(platform.AllActions, ", "), probeAction)
 	case o.format != "csv" && o.format != "json":
 		return "format must be csv or json"
 	case !slices.Contains(platformNames, o.platform):
@@ -91,14 +94,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	both(&o.input, "i", "input", "", "input CSV: start_ip,end_ip,username,password")
 	both(&o.output, "o", "output", "", "output file")
-	both(&o.action, "a", "action", "", "action: "+strings.Join(platform.AllActions, ", "))
+	both(&o.action, "a", "action", "", "action: "+strings.Join(platform.AllActions, ", ")+", "+probeAction)
 	both(&o.format, "f", "format", "csv", "output format: csv or json")
-	fs.StringVar(&o.platform, "platform", "auto", "auto, idrac9, idrac10, ilo, lenovo or supermicro (all but idrac9 are not validated on hardware)")
+	fs.StringVar(&o.platform, "platform", "auto", "auto, idrac9, idrac10, ilo, lenovo or supermicro")
 	fs.StringVar(&o.method, "method", "", "Dell certificate import method: oem or standard (default oem on iDRAC9, standard on iDRAC10)")
 	fs.StringVar(&o.certURI, "cert-uri", "", "certificate URI for db_export and db_delete")
 	fs.StringVar(&o.certFile, "cert-file", "", "certificate file for db_import (PEM or DER, max 64 KiB) and db_export (host IP added to the name)")
 	fs.StringVar(&o.resetType, "reset-type", "", "reset_keys type: "+strings.Join(resetTypes, ", "))
 	fs.BoolVar(&o.confirm, "confirm", false, "confirm a destructive action (reset_keys)")
+	fs.StringVar(&o.probeDump, "probe-dump", "", "probe: write the redacted raw responses of every host to this JSON file")
 	fs.BoolVar(&o.dryRun, "dry-run", false, "read and validate only: report what would change, write nothing")
 	fs.IntVar(&o.retries, "retries", 2, "extra attempts on transient errors (connection resets on reads, BMC busy answers)")
 	fs.IntVar(&o.concurrency, "concurrency", 20, "hosts processed in parallel")
@@ -111,6 +115,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.BoolVar(&o.verbose, "v", false, "debug logs (never include secrets)")
 	fs.Usage = func() {
 		fmt.Fprintln(stderr, "Usage: sbmgr -i nodes.csv -o out.csv -a <action> [options]")
+		fmt.Fprintln(stderr, "New platform or firmware? Run -a probe first: it reads, writes nothing, and says what each BMC answers.")
 		fmt.Fprintln(stderr)
 		fs.PrintDefaults()
 	}
@@ -162,7 +167,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	defer stop()
 	results := runner.Run(ctx, hosts, runner.Options{
 		Action:      o.action,
-		Params:      actions.Params{CertURI: o.certURI, CertFile: o.certFile, DryRun: o.dryRun, ResetType: o.resetType},
+		Params:      actions.Params{CertURI: o.certURI, CertFile: o.certFile, DryRun: o.dryRun, ResetType: o.resetType, Capture: o.probeDump != ""},
 		Platform:    o.platform,
 		Method:      o.method,
 		Concurrency: o.concurrency,
@@ -172,6 +177,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		},
 	})
 
+	if o.probeDump != "" {
+		if err := writeProbeDump(o.probeDump, results); err != nil {
+			fmt.Fprintln(stderr, "sbmgr:", err)
+			return 2
+		}
+	}
 	if err := writeOutput(o, results); err != nil {
 		fmt.Fprintln(stderr, "sbmgr:", err)
 		return 2
@@ -203,4 +214,20 @@ func writeOutput(o options, results []report.Result) error {
 		err = cerr
 	}
 	return err
+}
+
+// writeProbeDump saves the redacted raw responses of the probe, by host then URI.
+// The file is 0600: it is redacted, but it still describes the machines.
+func writeProbeDump(path string, results []report.Result) error {
+	dump := map[string]map[string]json.RawMessage{}
+	for _, r := range results {
+		if r.Capture != nil {
+			dump[r.IP] = r.Capture
+		}
+	}
+	b, err := json.MarshalIndent(dump, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o600)
 }

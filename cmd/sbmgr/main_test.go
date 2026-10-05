@@ -43,9 +43,9 @@ func TestUsageErrorsExitWithTwo(t *testing.T) {
 	}
 }
 
-func TestHelpExitsZeroAndMentionsUnvalidatedPlatforms(t *testing.T) {
+func TestHelpExitsZeroAndPointsToProbe(t *testing.T) {
 	code, _, stderr := exec(t, "-h")
-	if code != 0 || !strings.Contains(stderr, "not validated on hardware") {
+	if code != 0 || !strings.Contains(stderr, "-a probe") || strings.Contains(stderr, "not validated") {
 		t.Errorf("code = %d, stderr = %q", code, stderr)
 	}
 }
@@ -111,6 +111,21 @@ func TestWarnsWhenTLSVerificationIsOff(t *testing.T) {
 	_, _, stderr = exec(t, "-i", in, "-o", filepath.Join(dir, "o.csv"), "-a", "status", "--timeout", "1s", "--verify-tls")
 	if strings.Contains(stderr, "TLS verification is disabled") {
 		t.Errorf("no warning expected with --verify-tls, stderr = %q", stderr)
+	}
+}
+
+func TestProbeIsAnActionAndWritesChecksAndDump(t *testing.T) {
+	dir := t.TempDir()
+	in := filepath.Join(dir, "in.csv")
+	_ = os.WriteFile(in, []byte("start_ip,end_ip,username,password\n127.0.0.1,,root,pw\n"), 0o600)
+	out, dump := filepath.Join(dir, "o.csv"), filepath.Join(dir, "dump.json")
+	code, _, _ := exec(t, "-i", in, "-o", out, "-a", "probe", "--probe-dump", dump, "--timeout", "1s", "--retries", "0")
+	b, _ := os.ReadFile(out)
+	if code != 1 || !strings.HasPrefix(string(b), "IP Address,Platform,Check,Status,Detail") || !strings.Contains(string(b), "FAIL") {
+		t.Errorf("code = %d, out = %q", code, b)
+	}
+	if fi, err := os.Stat(dump); err != nil || fi.Size() == 0 {
+		t.Errorf("dump: %v", err)
 	}
 }
 
