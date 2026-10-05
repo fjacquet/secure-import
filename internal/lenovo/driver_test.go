@@ -121,3 +121,25 @@ func TestResetKeysReadsVerdictFromMessages(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// A reset of one database must stay a reset of that database on XCC too, never a reset
+// of every key (the top-level action).
+func TestResetKeysOfOneDatabaseDoesNotFallBackToTheWholeSecureBoot(t *testing.T) {
+	s, d := newFake(t)
+	const dbs = sb + "/SecureBootDatabases"
+	target := dbs + "/KEK/Actions/SecureBootDatabase.ResetKeys"
+	s.JSON("GET", dbs, 200, map[string]any{"Members": []any{map[string]string{"@odata.id": dbs + "/KEK"}}})
+	s.JSON("GET", dbs+"/KEK", 200, map[string]any{"Actions": map[string]any{"#SecureBootDatabase.ResetKeys": map[string]any{
+		"target": target, "ResetKeysType@Redfish.AllowableValues": []string{"ResetAllKeysToDefault", "DeleteAllKeys"}}}})
+	s.JSON("GET", sb, 200, map[string]any{"SecureBootDatabases": map[string]string{"@odata.id": dbs},
+		"Actions": map[string]any{"#SecureBoot.ResetKeys": map[string]any{"target": sb + "/Actions/SecureBoot.ResetKeys"}}})
+	s.JSON("POST", target, 200, msg("Lenovo.1.0.RebootRequired", "reboot"))
+	s.JSON("POST", sb+"/Actions/SecureBoot.ResetKeys", 200, msg("Lenovo.1.0.RebootRequired", "reboot"))
+	d.WithDatabase("KEK")
+	if _, err := d.ResetKeys(context.Background(), "DeleteAllKeys"); err != nil {
+		t.Fatal(err)
+	}
+	if s.Count("POST", target) != 1 || s.Count("POST", sb+"/Actions/SecureBoot.ResetKeys") != 0 {
+		t.Error("the per-database action must be used, and the top-level reset (all keys) must not be")
+	}
+}

@@ -4,6 +4,7 @@ package actions
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -81,26 +82,28 @@ func runDB(ctx context.Context, p platform.Platform, action string, par Params, 
 		ch, err := p.DBImport(ctx, par.CertFile)
 		finish(r, ch, err)
 	case platform.ActionDBExport:
-		if !isCertURI(redfish.SanitizePath(par.CertURI)) {
+		uri := normalizeURI(par.CertURI)
+		if !isCertURI(uri) {
 			r.Error = "not a certificate URI: " + par.CertURI
 			return
 		}
-		ch, err := p.DBExport(ctx, redfish.SanitizePath(par.CertURI), hostFile(par.CertFile, r.IP))
+		ch, err := p.DBExport(ctx, uri, hostFile(par.CertFile, r.IP))
 		finish(r, ch, err)
 	case platform.ActionDBDelete:
-		if !isCertURI(redfish.SanitizePath(par.CertURI)) {
+		uri := normalizeURI(par.CertURI) // what is checked below is exactly what is sent
+		if !isCertURI(uri) {
 			r.Error = "not a certificate URI: " + par.CertURI
 			return
 		}
-		if err := guardWrite(ctx, p, databaseOfURI(par.CertURI), par.Confirm); err != nil {
+		if err := guardWrite(ctx, p, databaseOfURI(uri), par.Confirm); err != nil {
 			r.Error = err.Error()
 			return
 		}
 		if par.DryRun {
-			dryDelete(ctx, p, redfish.SanitizePath(par.CertURI), r)
+			dryDelete(ctx, p, uri, r)
 			return
 		}
-		ch, err := p.DBDelete(ctx, redfish.SanitizePath(par.CertURI))
+		ch, err := p.DBDelete(ctx, uri)
 		finish(r, ch, err)
 	}
 }
@@ -284,13 +287,20 @@ func dryDelete(ctx context.Context, p platform.Platform, uri string, r *report.R
 
 // resetKeys runs the destructive key reset. The CLI refuses it without --confirm.
 func resetKeys(ctx context.Context, p platform.Platform, par Params, st platform.Status, r *report.Result) {
-	if err := guardWriteIn(par.Database, par.Confirm, st.Mode); err != nil {
-		r.Error = err.Error()
+	// ADR 0006: --confirm is the safeguard of every reset. Requiring Setup or Audit mode
+	// would forbid the operations that lead there (DeletePK, DeleteAllKeys), and a
+	// whole-SecureBoot reset reaches PK and KEK anyway, so one rule covers every spelling.
+	if !par.Confirm && !par.DryRun {
+		r.Error = "reset_keys is destructive and requires --confirm"
 		return
+	}
+	scope := "all Secure Boot keys"
+	if par.Database != "" {
+		scope = "the " + par.Database + " database"
 	}
 	if par.DryRun {
 		r.Success, r.NewStatus = true, r.CurrentStatus
-		r.ChangeMessage = "DRY RUN: would reset Secure Boot keys (" + par.ResetType + ")"
+		r.ChangeMessage = "DRY RUN: would reset " + scope + " (" + par.ResetType + ")"
 		return
 	}
 	ch, err := p.ResetKeys(ctx, par.ResetType)
@@ -331,12 +341,47 @@ func guardWriteIn(database string, confirm bool, mode string) error {
 	return nil
 }
 
-// databaseOfURI names the guarded database a certificate URI lives in ("" otherwise).
+// normalizeURI makes a user-supplied certificate URI canonical before it is checked AND
+// sent: percent-decoded (repeatedly, so %254B cannot hide a K), cleaned of "." ".." and
+// empty segments, of ";" parameters, of the query and of stray spaces. Without this a
+// guarded database could be reached by a spelling the guard does not recognise but the
+// BMC normalises (%4BEK, kek;x=1, KEK%20).
+func normalizeURI(uri string) string {
+	uri = redfish.SanitizePath(uri)
+	for i := 0; i < 4; i++ {
+		dec, err := url.PathUnescape(uri)
+		if err != nil || dec == uri {
+			break
+		}
+		uri = dec
+	}
+	if i := strings.IndexAny(uri, "?#"); i >= 0 {
+		uri = uri[:i]
+	}
+	var segs []string
+	for _, seg := range strings.Split(strings.ReplaceAll(uri, `\`, "/"), "/") {
+		if i := strings.Index(seg, ";"); i >= 0 {
+			seg = seg[:i]
+		}
+		switch seg = strings.TrimSpace(seg); seg {
+		case "", ".":
+		case "..":
+			if len(segs) > 0 {
+				segs = segs[:len(segs)-1]
+			}
+		default:
+			segs = append(segs, seg)
+		}
+	}
+	return "/" + strings.Join(segs, "/")
+}
+
+// databaseOfURI names the guarded database a (normalised) certificate URI lives in.
 func databaseOfURI(uri string) string {
-	lower := strings.ToLower(uri)
-	for _, db := range []string{"pk", "kek", "dbx"} {
-		if strings.Contains(lower, "/"+db+"/") {
-			return strings.ToUpper(db)
+	for _, seg := range strings.Split(strings.ToLower(uri), "/") {
+		switch seg {
+		case "pk", "kek", "dbx":
+			return strings.ToUpper(seg)
 		}
 	}
 	return ""

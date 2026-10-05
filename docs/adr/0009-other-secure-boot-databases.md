@@ -25,12 +25,19 @@ the Dell schema describes no useful property there.
   of the `Signature` resource (`SignatureString`, `SignatureType`
   `EFI_CERT_SHA256_GUID`, `SignatureTypeRegistry` `UEFI`, `UefiSignatureOwner`). **This format
   is not confirmed by any BMC.**
-- Guard rules, applied before any write (including `db_delete` of a member whose URI
-  contains `/PK/`, `/KEK/` or `/dbx/`, and `reset_keys --database`):
+- Guard rules, applied before any import or delete (including `db_delete` of a member whose
+  URI contains a `PK`, `KEK` or `dbx` path segment):
   - PK, KEK and dbx require `--confirm`;
   - PK and KEK additionally require a `SecureBootMode` equal to `SetupMode` or `AuditMode`:
     the platform key of a deployed server is not replaced by accident.
   - `--dry-run` applies the same refusals.
+  - The certificate URI is normalised before it is checked **and sent** (percent-decoded
+    repeatedly, `.` `..` `;` parameters, query and spaces removed), so a spelling the BMC
+    normalises (`%4BEK`, `kek;x=1`) cannot slip past the guard.
+- Resets are not gated on the mode: `reset_keys` (whole SecureBoot or one database) needs
+  `--confirm` and nothing else, as in ADR 0006. A mode requirement would forbid the very
+  operations that lead to Setup Mode (`DeletePK`, `DeleteAllKeys`), and a whole-SecureBoot
+  reset reaches PK and KEK in any case, so one rule covers every spelling.
 - `reset_keys --database X` calls the database's `SecureBootDatabase.ResetKeys` action,
   validated against its `AllowableValues`; only `ResetAllKeysToDefault` and `DeleteAllKeys`
   exist at this level.

@@ -242,7 +242,7 @@ func TestResetKeysActionAndDryRun(t *testing.T) {
 	ctx := context.Background()
 	f := newFake()
 	f.change = platform.Change{Message: "done", RebootRequired: true}
-	r := Run(ctx, f, "ip", platform.ActionResetKeys, Params{ResetType: "DeleteAllKeys"})
+	r := Run(ctx, f, "ip", platform.ActionResetKeys, Params{ResetType: "DeleteAllKeys", Confirm: true})
 	if !r.Success || !slices.Contains(f.calls, "reset=DeleteAllKeys") || !strings.Contains(r.ChangeMessage, "done") {
 		t.Errorf("r = %+v, calls = %v", r, f.calls)
 	}
@@ -334,11 +334,62 @@ func TestDBXSignatureImportNeedsConfirm(t *testing.T) {
 	}
 }
 
-func TestResetOfPKOrKEKDatabaseIsGuarded(t *testing.T) {
+// ---- second review
+
+func TestGuardedURIsAreRecognisedWhateverTheSpelling(t *testing.T) {
+	for _, uri := range []string{
+		"/redfish/v1/Systems/1/SecureBoot/SecureBootDatabases/%4BEK/Certificates/1",
+		"/redfish/v1/Systems/1/SecureBoot/SecureBootDatabases/%6bek/Certificates/1",
+		"/redfish/v1/Systems/1/SecureBoot/SecureBootDatabases/%254BEK/Certificates/1",
+		"/redfish/v1/Systems/1/SecureBoot/SecureBootDatabases/kek;x=1/Certificates/1",
+		"/redfish/v1/Systems/1/SecureBoot/SecureBootDatabases/KEK%20/Certificates/1",
+		"/redfish/v1/Systems/1/SecureBoot/SecureBootDatabases/./KEK/Certificates/1",
+		"/redfish/v1/Systems/1/SecureBoot/SecureBootDatabases//KEK/Certificates/1",
+		"/redfish/v1/Systems/1/SecureBoot/SecureBootDatabases/x/../KEK/Certificates/1",
+		"/redfish/v1/Systems/1/SecureBoot/SecureBootDatabases/PK/Certificates/1?a=b",
+	} {
+		f := newFake()
+		f.status.Mode = "UserMode"
+		r := Run(context.Background(), f, "ip", platform.ActionDBDelete, Params{CertURI: uri})
+		if r.Success || !strings.Contains(r.Error, "requires --confirm") {
+			t.Errorf("%s: r = %+v", uri, r)
+		}
+		for _, c := range f.calls {
+			if strings.HasPrefix(c, "delete=") {
+				t.Errorf("%s: the guard was bypassed, calls = %v", uri, f.calls)
+			}
+		}
+	}
+}
+
+func TestTheGuardedURIIsTheOneThatIsSent(t *testing.T) {
 	f := newFake()
-	f.status.Mode = "UserMode"
-	r := Run(context.Background(), f, "ip", platform.ActionResetKeys, Params{Database: "KEK", ResetType: "DeleteAllKeys", Confirm: true})
-	if r.Success || !strings.Contains(r.Error, "SetupMode or AuditMode") || slices.Contains(f.calls, "reset=DeleteAllKeys") {
-		t.Errorf("r = %+v, calls = %v", r, f.calls)
+	f.status.Mode = "SetupMode"
+	Run(context.Background(), f, "ip", platform.ActionDBDelete, Params{Confirm: true,
+		CertURI: "/redfish/v1/x/SecureBootDatabases/%4BEK/Certificates/1"})
+	if !slices.Contains(f.calls, "delete=/redfish/v1/x/SecureBootDatabases/KEK/Certificates/1") {
+		t.Errorf("what is guarded and what is sent must be the same normalised URI: %v", f.calls)
+	}
+}
+
+// Resets follow ADR 0006: --confirm is the safeguard, on every spelling. Requiring Setup or
+// Audit mode would forbid the very operation that leads there (DeletePK, DeleteAllKeys).
+func TestResetsNeedConfirmButNotSetupModeWhicheverSpelling(t *testing.T) {
+	ctx := context.Background()
+	for _, p := range []Params{
+		{ResetType: "DeleteAllKeys"}, {ResetType: "DeletePK"},
+		{Database: "KEK", ResetType: "DeleteAllKeys"}, {Database: "PK", ResetType: "DeleteAllKeys"},
+	} {
+		f := newFake()
+		f.status.Mode = "UserMode"
+		if r := Run(ctx, f, "ip", platform.ActionResetKeys, p); r.Success || !strings.Contains(r.Error, "requires --confirm") {
+			t.Errorf("%+v without confirm: %+v", p, r)
+		}
+		p.Confirm = true
+		f = newFake()
+		f.status.Mode = "UserMode"
+		if r := Run(ctx, f, "ip", platform.ActionResetKeys, p); !r.Success || !slices.Contains(f.calls, "reset="+p.ResetType) {
+			t.Errorf("%+v with confirm in UserMode: %+v, calls = %v", p, r, f.calls)
+		}
 	}
 }

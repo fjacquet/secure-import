@@ -125,13 +125,7 @@ func (d *Driver) DBDelete(ctx context.Context, uri string) (platform.Change, err
 
 // ResetKeys asks the BMC to reset or delete the Secure Boot keys.
 func (d *Driver) ResetKeys(ctx context.Context, resetType string) (platform.Change, error) {
-	var resp *redfish.Response
-	var err error
-	if d.explicit {
-		resp, err = d.H.DBResetKeys(ctx, d.db, resetType)
-	} else {
-		resp, err = d.H.ResetKeys(ctx, resetType)
-	}
+	resp, err := d.ResetKeysResponse(ctx, resetType)
 	if err != nil {
 		return platform.Change{}, err
 	}
@@ -178,3 +172,13 @@ func (d *Driver) AddSignature(ctx context.Context, sha256hex, owner string) (pla
 }
 
 var sha256Hex = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
+
+// ResetKeysResponse sends the reset: the chosen database's own action when a database was
+// chosen with WithDatabase, else the whole-SecureBoot action. Drivers that read the verdict
+// differently (Lenovo) call this so they can never widen a per-database reset.
+func (d *Driver) ResetKeysResponse(ctx context.Context, resetType string) (*redfish.Response, error) {
+	if d.explicit {
+		return d.H.DBResetKeys(ctx, d.db, resetType)
+	}
+	return d.H.ResetKeys(ctx, resetType)
+}

@@ -322,8 +322,8 @@ func Matches(c platform.Cert, sha256hex string) bool {
 			return slices.Contains(fps, sha256hex)
 		}
 	}
-	algo := strings.ToLower(strings.ReplaceAll(c.Algorithm, "-", ""))
-	if c.Fingerprint != "" && algo == "sha256" {
+	algo := strings.ToLower(strings.NewReplacer("-", "", "_", "").Replace(c.Algorithm)) // SHA-256, sha256, TPM_ALG_SHA256
+	if c.Fingerprint != "" && strings.HasSuffix(algo, "sha256") {
 		fp := strings.ToLower(strings.NewReplacer(":", "", " ", "").Replace(c.Fingerprint))
 		return fp == sha256hex
 	}

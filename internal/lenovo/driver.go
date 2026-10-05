@@ -34,7 +34,7 @@ func (d *Driver) SetSecureBoot(ctx context.Context, enable bool) (platform.Chang
 
 // ResetKeys runs the key reset and reads the verdict like SetSecureBoot.
 func (d *Driver) ResetKeys(ctx context.Context, resetType string) (platform.Change, error) {
-	resp, err := d.H.ResetKeys(ctx, resetType)
+	resp, err := d.ResetKeysResponse(ctx, resetType)
 	if err != nil {
 		return platform.Change{}, err
 	}

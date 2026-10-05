@@ -199,3 +199,25 @@ func TestDatabaseFlagValidationAndCompletion(t *testing.T) {
 		}
 	}
 }
+
+func TestProbeDumpOnlyWithProbeAndNeverCostsTheResults(t *testing.T) {
+	dir := t.TempDir()
+	in := filepath.Join(dir, "in.csv")
+	_ = os.WriteFile(in, []byte("start_ip,end_ip,username,password\n127.0.0.1,,root,pw\n"), 0o600)
+	code, _, stderr := exec(t, "-i", in, "-o", filepath.Join(dir, "o.csv"), "-a", "status", "--probe-dump", filepath.Join(dir, "d.json"))
+	if code != 2 || !strings.Contains(stderr, "--probe-dump only applies to -a probe") {
+		t.Errorf("code = %d, stderr = %q", code, stderr)
+	}
+	out := filepath.Join(dir, "o2.csv")
+	code, _, _ = exec(t, "-i", in, "-o", out, "-a", "probe", "--probe-dump", filepath.Join(dir, "no-such-dir", "d.json"), "--timeout", "1s", "--retries", "0")
+	if _, err := os.Stat(out); err != nil {
+		t.Errorf("a bad dump path must not lose the results file (exit %d): %v", code, err)
+	}
+}
+
+func TestSignatureOwnerNeedsASignature(t *testing.T) {
+	code, _, stderr := exec(t, "-i", "a", "-o", "b", "-a", "db_import", "--database", "dbx", "--cert-file", "c", "--signature-owner", "g")
+	if code != 2 || !strings.Contains(stderr, "--signature-owner") {
+		t.Errorf("code = %d, stderr = %q", code, stderr)
+	}
+}

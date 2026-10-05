@@ -216,8 +216,10 @@ as an error `cannot detect platform (use --platform)`.
   EFI_CERT_SHA256_GUID, SignatureTypeRegistry: UEFI[, UefiSignatureOwner]}`). Format
   **not confirmed** by any BMC.
 - Safeguards: PK, KEK and dbx require `--confirm`; PK and KEK also require `SetupMode` or
-  `AuditMode`. Applies to `db_import`, to `db_delete` of a member under `/PK/`, `/KEK/` or
-  `/dbx/`, and to `reset_keys --database`. `--dry-run` applies the same refusals.
+  `AuditMode`. Applies to `db_import` and to `db_delete` of a member under a `PK`, `KEK` or
+  `dbx` path segment (the URI is normalised before it is checked and sent). `--dry-run`
+  applies the same refusals. Resets (`reset_keys`, with or without `--database`) need
+  `--confirm` only (ADR 0006, ADR 0009).
 - `reset_keys --database X`: `SecureBootDatabase.ResetKeys` action of the database, types
   `ResetAllKeysToDefault` or `DeleteAllKeys` only.
 

@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"sbmgr/internal/actions"
@@ -70,6 +71,10 @@ func (o *options) validate() string {
 		return "database must be one of " + strings.Join(databaseNames, ", ")
 	case o.signature != "" && (o.action != platform.ActionDBImport || o.database != "dbx"):
 		return "--signature only applies to db_import with --database dbx"
+	case o.signatureOwner != "" && o.signature == "":
+		return "--signature-owner only applies with --signature"
+	case o.probeDump != "" && o.action != probeAction:
+		return "--probe-dump only applies to -a probe"
 	case o.signature != "" && o.certFile != "":
 		return "use either --signature or --cert-file, not both"
 	case o.signature != "" && len(o.signature) != 64:
@@ -237,7 +242,7 @@ func execute(o options, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "warning: invalid rows skipped:\n"+rowErr.Error())
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	results := runner.Run(ctx, hosts, runner.Options{
 		Action:      o.action,
@@ -252,15 +257,15 @@ func execute(o options, stdout, stderr io.Writer) int {
 		},
 	})
 
+	if err := writeOutput(o, results); err != nil {
+		fmt.Fprintln(stderr, "sbmgr:", err)
+		return 2
+	}
 	if o.probeDump != "" {
 		if err := writeProbeDump(o.probeDump, results); err != nil {
 			fmt.Fprintln(stderr, "sbmgr:", err)
 			return 2
 		}
-	}
-	if err := writeOutput(o, results); err != nil {
-		fmt.Fprintln(stderr, "sbmgr:", err)
-		return 2
 	}
 	failed := 0
 	for _, r := range results {
@@ -304,5 +309,8 @@ func writeProbeDump(path string, results []report.Result) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o600)
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600) // WriteFile keeps the mode of a file that already exists
 }
