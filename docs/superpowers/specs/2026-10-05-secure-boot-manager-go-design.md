@@ -20,6 +20,9 @@ Dit par l'utilisateur : Go plutôt que Rust ; améliorations autorisées ; iDRAC
 la cible principale ; iLO et iDRAC10 inclus selon §3. Hypothèse : le déploiement
 se fait depuis un poste Windows (Git Bash) ou Linux, avec accès réseau direct aux BMC.
 
+Décisions structurantes : `docs/adr/0001` (Go), `0002` (découverte par liens),
+`0003` (un driver par plateforme), `0004` (succès lu dans `ExtendedInfo`).
+
 ## 2. Sources utilisées
 
 - Scripts et changelog fournis (comportement de référence iDRAC9).
