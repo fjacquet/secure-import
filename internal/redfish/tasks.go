@@ -95,8 +95,10 @@ func (c *Client) WaitTask(ctx context.Context, location string) (TaskResult, err
 		if ra, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && ra > 0 {
 			wait = time.Duration(ra) * time.Second
 		}
-		if time.Now().Add(wait).After(deadline) {
+		if left := time.Until(deadline); left <= 0 {
 			return res, fmt.Errorf("task still %q after %s", res.State, c.opts.TaskTimeout)
+		} else if wait > left {
+			wait = left // one last poll at the deadline
 		}
 		select {
 		case <-ctx.Done():

@@ -76,9 +76,6 @@ func TestReadErrors(t *testing.T) {
 	if _, err := Read(writeTemp(t, "start_ip,end_ip,username\n1.1.1.1,1.1.1.1,root\n")); err == nil || !strings.Contains(err.Error(), `missing column "password"`) {
 		t.Errorf("missing column: err = %v", err)
 	}
-	if _, err := Read(writeTemp(t, "start_ip,end_ip,username,password\n1.1.1.1,root\n")); err == nil {
-		t.Error("short row: want error")
-	}
 	if _, err := Read(filepath.Join(t.TempDir(), "absent.csv")); err == nil {
 		t.Error("absent file: want error")
 	}
@@ -108,5 +105,27 @@ func TestPermissionWarning(t *testing.T) {
 	}
 	if w := PermissionWarning(p); !strings.Contains(w, "readable by other users") {
 		t.Errorf("0644 file: warning = %q", w)
+	}
+}
+
+func TestReadSkipsBlankRowsAndToleratesShortRows(t *testing.T) {
+	p := writeTemp(t, "start_ip,end_ip,username,password\n10.0.0.1,,root,pw\n,,,\n10.0.0.2\n")
+	rows, err := Read(p)
+	if err != nil || len(rows) != 2 || rows[1].Start != "10.0.0.2" || rows[1].Username != "" {
+		t.Fatalf("rows = %+v, err = %v", rows, err)
+	}
+}
+
+func TestHostsKeepsGoodRowsAndReportsBadOnes(t *testing.T) {
+	hosts, err := Hosts([]Row{{"10.0.0.1", "", "u", "p"}, {"nope", "", "u", "p"}, {"10.0.0.3", "", "u", "p"}})
+	if len(hosts) != 2 || err == nil || !strings.Contains(err.Error(), "row 2") {
+		t.Fatalf("hosts = %+v, err = %v", hosts, err)
+	}
+}
+
+func TestHostsDeduplicatesKeepingFirstCredentials(t *testing.T) {
+	hosts, err := Hosts([]Row{{"10.0.0.1", "10.0.0.2", "a", "1"}, {"10.0.0.2", "10.0.0.3", "b", "2"}})
+	if err != nil || len(hosts) != 3 || hosts[1].Username != "a" || hosts[2].IP != "10.0.0.3" {
+		t.Fatalf("hosts = %+v, err = %v", hosts, err)
 	}
 }

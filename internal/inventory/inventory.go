@@ -88,6 +88,7 @@ func Read(path string) ([]Row, error) {
 	}
 	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 	r := csv.NewReader(bytes.NewReader(data))
+	r.FieldsPerRecord = -1 // short rows are padded, see get below
 	header, err := r.Read()
 	if err != nil {
 		return nil, fmt.Errorf("%s: reading header: %w", path, err)
@@ -110,30 +111,49 @@ func Read(path string) ([]Row, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
-		get := func(k string) string { return strings.TrimSpace(rec[idx[k]]) }
-		rows = append(rows, Row{
-			Start:    get("start_ip"),
-			End:      get("end_ip"),
-			Username: get("username"),
-			Password: rec[idx["password"]], // passwords are kept verbatim
-		})
+		field := func(k string) string {
+			if i := idx[k]; i < len(rec) {
+				return rec[i]
+			}
+			return ""
+		}
+		row := Row{
+			Start:    strings.TrimSpace(field("start_ip")),
+			End:      strings.TrimSpace(field("end_ip")),
+			Username: strings.TrimSpace(field("username")),
+			Password: field("password"), // passwords are kept verbatim
+		}
+		if row == (Row{}) { // blank or ",,," line (e.g. a trailing spreadsheet row)
+			continue
+		}
+		rows = append(rows, row)
 	}
 	return rows, nil
 }
 
-// Hosts flattens rows into one Host per address.
+// Hosts flattens rows into one Host per address. An address that appears twice
+// keeps its first credentials, so a BMC is never handled by two workers. Invalid
+// rows do not stop the others: the hosts of the valid rows are returned together
+// with an error that lists every invalid row.
 func Hosts(rows []Row) ([]Host, error) {
 	var out []Host
+	var errs []error
+	seen := map[string]bool{}
 	for i, row := range rows {
 		ips, err := Expand(row.Start, row.End)
 		if err != nil {
-			return nil, fmt.Errorf("row %d: %w", i+1, err)
+			errs = append(errs, fmt.Errorf("row %d: %w", i+1, err))
+			continue
 		}
 		for _, ip := range ips {
+			if seen[ip] {
+				continue
+			}
+			seen[ip] = true
 			out = append(out, Host{IP: ip, Username: row.Username, Password: row.Password})
 		}
 	}
-	return out, nil
+	return out, errors.Join(errs...)
 }
 
 // PermissionWarning returns a message when the file holding passwords is

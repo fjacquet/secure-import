@@ -54,9 +54,17 @@ func runDB(ctx context.Context, p platform.Platform, action string, par Params, 
 		ch, err := p.DBImport(ctx, par.CertFile)
 		finish(r, ch, err)
 	case platform.ActionDBExport:
+		if !isCertURI(redfish.SanitizePath(par.CertURI)) {
+			r.Error = "not a certificate URI: " + par.CertURI
+			return
+		}
 		ch, err := p.DBExport(ctx, redfish.SanitizePath(par.CertURI), hostFile(par.CertFile, r.IP))
 		finish(r, ch, err)
 	case platform.ActionDBDelete:
+		if !isCertURI(redfish.SanitizePath(par.CertURI)) {
+			r.Error = "not a certificate URI: " + par.CertURI
+			return
+		}
 		ch, err := p.DBDelete(ctx, redfish.SanitizePath(par.CertURI))
 		finish(r, ch, err)
 	}
@@ -153,4 +161,10 @@ func setEnable(ctx context.Context, p platform.Platform, action string, st platf
 func hostFile(file, ip string) string {
 	ext := filepath.Ext(file)
 	return strings.TrimSuffix(file, ext) + "_" + strings.NewReplacer(":", "-", "/", "-").Replace(ip) + ext
+}
+
+// isCertURI guards db_export and db_delete: the URI must point into a Certificates
+// collection, so a typo cannot delete an account or a session.
+func isCertURI(uri string) bool {
+	return strings.Contains(strings.ToLower(uri), "/certificates/")
 }

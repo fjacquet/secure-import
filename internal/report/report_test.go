@@ -53,3 +53,16 @@ func TestWriteJSONRoundTripsAndNeverEmitsPasswords(t *testing.T) {
 		t.Error("JSON output must not contain a password field")
 	}
 }
+
+func TestWriteCSVNeutralisesFormulaCells(t *testing.T) {
+	r := New("10.0.0.3", "db_list", "ilo")
+	r.Error = "=HYPERLINK(\"http://x\")"
+	r.Message = "+cmd"
+	var buf bytes.Buffer
+	if err := WriteCSV(&buf, "db_list", []Result{r}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), ",=HYPERLINK") || strings.Contains(buf.String(), ",+cmd") || !strings.Contains(buf.String(), "'=HYPERLINK") {
+		t.Errorf("csv = %q", buf.String())
+	}
+}

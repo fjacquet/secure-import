@@ -73,3 +73,25 @@ func TestUnreachableHostGivesExitOneAndOutputFile(t *testing.T) {
 		t.Error("the password must not appear in the output")
 	}
 }
+
+func TestEmptyInventoryExitsWithTwo(t *testing.T) {
+	dir := t.TempDir()
+	in := filepath.Join(dir, "in.csv")
+	_ = os.WriteFile(in, []byte("start_ip,end_ip,username,password\n"), 0o600)
+	code, _, stderr := exec(t, "-i", in, "-o", filepath.Join(dir, "o.csv"), "-a", "status")
+	if code != 2 || !strings.Contains(stderr, "no hosts") {
+		t.Errorf("code = %d, stderr = %q", code, stderr)
+	}
+}
+
+func TestBadRowDoesNotAbortTheRun(t *testing.T) {
+	dir := t.TempDir()
+	in := filepath.Join(dir, "in.csv")
+	_ = os.WriteFile(in, []byte("start_ip,end_ip,username,password\nnope,,u,p\n127.0.0.1,,root,pw\n"), 0o600)
+	out := filepath.Join(dir, "o.csv")
+	code, _, stderr := exec(t, "-i", in, "-o", out, "-a", "status", "--timeout", "1s")
+	b, _ := os.ReadFile(out)
+	if code != 1 || !strings.Contains(stderr, "row 1") || !strings.Contains(string(b), "127.0.0.1") {
+		t.Errorf("code = %d, stderr = %q, out = %q", code, stderr, b)
+	}
+}

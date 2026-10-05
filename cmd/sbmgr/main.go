@@ -117,10 +117,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "sbmgr:", err)
 		return 2
 	}
-	hosts, err := inventory.Hosts(rows)
-	if err != nil {
-		fmt.Fprintln(stderr, "sbmgr:", err)
+	hosts, rowErr := inventory.Hosts(rows)
+	if len(hosts) == 0 {
+		if rowErr != nil {
+			fmt.Fprintln(stderr, "sbmgr:", rowErr)
+		}
+		fmt.Fprintln(stderr, "sbmgr: no hosts to process in", o.input)
 		return 2
+	}
+	if rowErr != nil {
+		fmt.Fprintln(stderr, "warning: invalid rows skipped:\n"+rowErr.Error())
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -148,7 +154,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	fmt.Fprintf(stdout, "Processing complete. Results saved to %s (%d succeeded, %d failed)\n", o.output, len(results)-failed, failed)
-	if failed > 0 {
+	if failed > 0 || rowErr != nil {
 		return 1
 	}
 	return 0

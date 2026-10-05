@@ -205,3 +205,17 @@ func TestLogoutUsesSessionIDFromBodyWhenNoLocation(t *testing.T) {
 		t.Error("session must be deleted using the body's @odata.id")
 	}
 }
+
+func TestHTTPErrorBodyIsTruncated(t *testing.T) {
+	s := testbmc.New(t)
+	s.Redfish("Dell", "S1", "16G", "7.0.0.0")
+	s.Handle("GET", "/big", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+		_, _ = w.Write([]byte(strings.Repeat("x", 100000)))
+	})
+	c := newClient(t, s, Options{})
+	_, err := c.Do(context.Background(), http.MethodGet, "/big", nil, nil)
+	if err == nil || len(err.Error()) > 1000 {
+		t.Errorf("err length = %d", len(err.Error()))
+	}
+}

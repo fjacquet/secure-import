@@ -111,7 +111,7 @@ func (d *Driver) DBExport(ctx context.Context, uri, file string) (platform.Chang
 	if len(resp.Body) == 0 {
 		return platform.Change{}, fmt.Errorf("exported certificate is empty: %s", uri)
 	}
-	if err := os.WriteFile(file, resp.Body, 0o644); err != nil {
+	if err := os.WriteFile(file, resp.Body, 0o600); err != nil {
 		return platform.Change{}, fmt.Errorf("failed to save certificate: %w", err)
 	}
 	return platform.Change{Message: "DB certificate exported to " + file}, nil

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -164,4 +165,15 @@ func realCert(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return der
+}
+
+func TestDBExportFileIsPrivate(t *testing.T) {
+	_, d := newFake9(t, "")
+	out := filepath.Join(t.TempDir(), "out.der")
+	if _, err := d.DBExport(context.Background(), store+"/CustSecbootpolicy.7", out); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(out); fi == nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600) {
+		t.Errorf("mode = %v", fi)
+	}
 }

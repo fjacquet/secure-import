@@ -46,6 +46,14 @@ func yesNo(b bool) string {
 	return "No"
 }
 
+// cell neutralises spreadsheet formulas in text that comes from a BMC.
+func cell(s string) string {
+	if s != "" && strings.ContainsRune("=+-@", rune(s[0])) {
+		return "'" + s
+	}
+	return s
+}
+
 // WriteCSV writes results with the Python column layout (DB layout for db_*
 // actions) plus a final Platform column.
 func WriteCSV(w io.Writer, action string, results []Result) error {
@@ -53,7 +61,7 @@ func WriteCSV(w io.Writer, action string, results []Result) error {
 	if strings.HasPrefix(action, "db_") {
 		_ = cw.Write([]string{"IP Address", "Action", "Success", "Message", "Error", "Certificate Count", "Platform"})
 		for _, r := range results {
-			_ = cw.Write([]string{r.IP, r.Action, yesNo(r.Success), r.Message, r.Error, strconv.Itoa(r.CertCount), r.Platform})
+			_ = cw.Write([]string{r.IP, r.Action, yesNo(r.Success), cell(r.Message), cell(r.Error), strconv.Itoa(r.CertCount), r.Platform})
 		}
 	} else {
 		_ = cw.Write([]string{"IP Address", "Action", "Name", "Description", "Current Status", "Current Boot",
@@ -62,7 +70,7 @@ func WriteCSV(w io.Writer, action string, results []Result) error {
 		for _, r := range results {
 			_ = cw.Write([]string{r.IP, r.Action, r.Name, r.Description, r.CurrentStatus, r.CurrentBoot,
 				r.CurrentMode, r.CurrentPolicy, r.NewPolicy, r.CertificatesURI, r.NewStatus, yesNo(r.Success),
-				r.ChangeMessage, r.Error, r.Platform})
+				cell(r.ChangeMessage), cell(r.Error), r.Platform})
 		}
 	}
 	cw.Flush()

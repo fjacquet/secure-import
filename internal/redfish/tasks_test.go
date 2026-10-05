@@ -74,3 +74,18 @@ func TestWaitTaskReadsDellJobStateWhenNoTaskState(t *testing.T) {
 		t.Errorf("tr = %+v, err = %v", tr, err)
 	}
 }
+
+func TestWaitTaskRetryAfterBeyondBudgetStillPollsUntilDeadline(t *testing.T) {
+	s := testbmc.New(t)
+	s.Redfish("Dell", "S1", "16G", "7.0.0.0")
+	var n atomic.Int32
+	s.Handle("GET", "/task", func(w http.ResponseWriter, _ *http.Request) {
+		n.Add(1)
+		w.Header().Set("Retry-After", "3600")
+		testbmc.WriteJSON(w, 200, map[string]any{"TaskState": "Running"})
+	})
+	c := newClient(t, s, Options{PollInterval: time.Millisecond, TaskTimeout: 100 * time.Millisecond})
+	if _, err := c.WaitTask(context.Background(), "/task"); err == nil || n.Load() < 2 {
+		t.Errorf("err = %v, polls = %d, want a final poll at the deadline", err, n.Load())
+	}
+}

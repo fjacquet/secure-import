@@ -168,9 +168,9 @@ func TestDBActions(t *testing.T) {
 	}
 	// MSYS-mangled URIs are repaired before reaching the driver.
 	f = newFake()
-	Run(ctx, f, "ip", platform.ActionDBDelete, Params{CertURI: "C:/Program Files/Git/redfish/v1/x/DB/Cust.7"})
-	Run(ctx, f, "ip", platform.ActionDBExport, Params{CertURI: "redfish/v1/x/DB/Cust.7", CertFile: "o.der"})
-	if !slices.Contains(f.calls, "delete=/redfish/v1/x/DB/Cust.7") || !slices.Contains(f.calls, "export=/redfish/v1/x/DB/Cust.7>o_ip.der") {
+	Run(ctx, f, "ip", platform.ActionDBDelete, Params{CertURI: "C:/Program Files/Git/redfish/v1/x/Certificates/Cust.7"})
+	Run(ctx, f, "ip", platform.ActionDBExport, Params{CertURI: "redfish/v1/x/Certificates/Cust.7", CertFile: "o.der"})
+	if !slices.Contains(f.calls, "delete=/redfish/v1/x/Certificates/Cust.7") || !slices.Contains(f.calls, "export=/redfish/v1/x/Certificates/Cust.7>o_ip.der") {
 		t.Errorf("calls = %v", f.calls)
 	}
 	f = newFake()
@@ -178,7 +178,15 @@ func TestDBActions(t *testing.T) {
 	if r := Run(ctx, f, "ip", platform.ActionDBList, Params{}); r.Success || r.Error != "Failed to get DB certificates: HTTP 500: x" {
 		t.Errorf("list error: %+v", r)
 	}
-	if r := Run(ctx, f, "ip", platform.ActionDBDelete, Params{CertURI: "/u"}); r.Success || r.Error != "HTTP 500: x" {
+	if r := Run(ctx, f, "ip", platform.ActionDBDelete, Params{CertURI: "/redfish/v1/x/Certificates/u"}); r.Success || r.Error != "HTTP 500: x" {
 		t.Errorf("delete error: %+v", r)
+	}
+}
+
+func TestDBDeleteRefusesNonCertificateURI(t *testing.T) {
+	f := newFake()
+	r := Run(context.Background(), f, "ip", platform.ActionDBDelete, Params{CertURI: "/redfish/v1/AccountService/Accounts/2"})
+	if r.Success || !strings.Contains(r.Error, "not a certificate URI") || len(f.calls) != 0 {
+		t.Errorf("r = %+v, calls = %v", r, f.calls)
 	}
 }

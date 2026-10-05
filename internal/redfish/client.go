@@ -59,6 +59,11 @@ type Response struct {
 	Body   []byte
 }
 
+const (
+	maxBody      = 8 << 20 // larger responses are cut off
+	maxErrorBody = 512     // error text kept in reports
+)
+
 // HTTPError is returned for any status other than 200, 201, 202 or 204.
 type HTTPError struct {
 	Status int
@@ -162,7 +167,7 @@ func (c *Client) do(ctx context.Context, method, path string, header http.Header
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
 	}
@@ -171,7 +176,11 @@ func (c *Client) do(ctx context.Context, method, path string, header http.Header
 	case http.StatusOK, http.StatusCreated, http.StatusAccepted, http.StatusNoContent:
 		return r, nil
 	}
-	return r, &HTTPError{Status: resp.StatusCode, Body: string(data)}
+	text := string(data)
+	if len(text) > maxErrorBody {
+		text = text[:maxErrorBody] + "…"
+	}
+	return r, &HTTPError{Status: resp.StatusCode, Body: text}
 }
 
 // GetJSON GETs path and decodes the JSON body into out.
