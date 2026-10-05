@@ -44,6 +44,7 @@ Options principales (`sbmgr -h` donne la liste complète) :
 | Option | Rôle |
 |---|---|
 | `-a`, `--action` | `status`, `enable`, `disable`, `set_policy_custom`, `set_policy_standard`, `db_list`, `db_import`, `db_export`, `db_delete`, `reset_keys` |
+| `-a probe`, `--probe-dump` | contrôle en lecture seule de ce que répond chaque BMC ; `--probe-dump f.json` garde les réponses brutes expurgées |
 | `--dry-run` | lit et valide tout, n'écrit rien : le résultat dit ce qui changerait |
 | `--cert-file`, `--cert-uri` | fichier de certificat (PEM ou DER, 64 Kio max) ; URI d'un certificat pour `db_export` et `db_delete` |
 | `--reset-type`, `--confirm` | type de `reset_keys` ; confirmation obligatoire de cette action destructive |
@@ -55,6 +56,9 @@ Options principales (`sbmgr -h` donne la liste complète) :
 
 Code de sortie : `0` tout a réussi ; `1` au moins un hôte a échoué ou une ligne du CSV a été
 ignorée ; `2` erreur d'usage ou d'entrée (fichier illisible, aucun hôte).
+
+**Nouvelle plateforme ou nouveau firmware ?** Lancez d'abord `-a probe` : il ne fait que lire, et dit
+ce que chaque BMC répond (`OK`, `FAIL`, `ABSENT`).
 
 Un `db_import` déjà présent n'écrit rien (« already present », comparaison par SHA-256).
 `enable` et `disable` restent en attente jusqu'au prochain démarrage.
@@ -94,3 +98,4 @@ make test         # tests contre un faux BMC
   - [0004 — Succès lu dans `ExtendedInfo`](docs/adr/0004-succes-lu-dans-extendedinfo.md)
   - [0005 — Dell : OEM sur iDRAC9, standard sur iDRAC10](docs/adr/0005-dell-methode-import.md)
   - [0006 — `reset_keys` : action destructive, explicite et confirmée](docs/adr/0006-reset-keys.md)
+  - [0007 — `probe` : valider une plateforme par des lectures](docs/adr/0007-action-probe.md)

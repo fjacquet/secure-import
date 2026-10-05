@@ -285,6 +285,8 @@ sbmgr -i nodes.csv -o out.csv -a <action> [options]
                          ResetKEK, ResetDB, ResetDBX)
   --confirm              obligatoire pour reset_keys (sauf avec --dry-run)
   --dry-run              ne rien écrire, dire ce qui changerait
+  -a probe               lectures seules : contrôle ce que répond chaque BMC (ADR 0007)
+  --probe-dump PATH      probe : réponses brutes expurgées, fichier 0600
   --retries N            nouvelles tentatives sur erreur transitoire (défaut 2)
   --version              affiche la version
   --concurrency N        défaut 20
