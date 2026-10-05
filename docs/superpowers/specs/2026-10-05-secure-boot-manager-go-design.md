@@ -39,8 +39,8 @@ Décisions structurantes : `docs/adr/0001` (Go), `0002` (découverte par liens),
 
 | Driver | Actions v1 | Statut |
 |---|---|---|
-| `idrac9` | `status`, `enable`, `disable`, `set_policy_custom`, `set_policy_standard`, `db_list`, `db_import`, `db_export`, `db_delete` | Comportement issu du script en production ; tests simulés |
-| `idrac10` | `status`, `db_list`, `db_import`, `db_delete` | Import/suppression par le POST/DELETE standard (méthode du module Ansible Dell) ; d'après l'OpenAPI ; **non validé sur matériel** |
+| `idrac9` | `status`, `enable`, `disable`, `set_policy_custom`, `set_policy_standard`, `db_list`, `db_import`, `db_export`, `db_delete`, `reset_keys` | Comportement issu du script en production ; tests simulés |
+| `idrac10` | les 10 actions, comme `idrac9` | Vérifié dans l'OpenAPI 1.30 : `SecureBoot` PATCH, `Bios/Settings` (`SecureBootPolicy`), collections `Certificates`, `ResetKeys`. Import/suppression par le POST/DELETE standard (méthode du module Ansible Dell) ; export lu dans `CertificateString` du JSON ; **non validé sur matériel** |
 | `ilo` | `status`, `db_list`, `db_import`, `db_delete`, `enable`, `disable` | Redfish standard d'après la doc HPE ; **non validé sur matériel** |
 | `lenovo` | `status`, `enable`, `disable`, `db_list`, `db_import`, `db_delete` | `status`/`enable`/`disable` d'après le XCC REST API Guide ; `db_*` par le POST/DELETE standard comme `bmclib`, que le guide ne documente pas ; **non validé sur matériel** |
 | `supermicro` | `status`, `enable`, `disable`, `db_list`, `db_import`, `db_delete` | D'après le guide Redfish Supermicro ; **non validé sur matériel**. Import documenté pour `dbt` seulement ; `db` supposé identique |
@@ -121,7 +121,8 @@ méthodes non gérées. `Status` porte aussi `PendingPolicy` (valeur en attente 
   reboot » ; `Completed` = succès ; `Exception`/`Killed` = échec. Délai maximal
   `--task-timeout` (défaut 120 s). `--no-wait` désactive le suivi.
 - **TLS** : vérification désactivée par défaut (BMC auto-signés) ; `--verify-tls`
-  et `--ca-file` pour l'activer.
+  et `--ca-file` pour l'activer. Un avertissement sur stderr rappelle à chaque exécution
+  que les identifiants peuvent être interceptés sur un réseau non maîtrisé.
 
 ## 6. Détection de plateforme
 
@@ -318,3 +319,6 @@ a échoué, 2 en cas d'erreur d'usage.
    limites par base, besoin de licence DCMS et génération minimale du BMC.
 6. Suppression des garde-fous « Custom exige Secure Boot actif » : comportement du
    firmware à confirmer.
+7. Statut d'implémentation : le code et ses tests (faux BMC, specs OpenAPI Dell) sont en place ;
+   l'ensemble reste non validé sur matériel. Ordre d'essai conseillé : `status`, `db_list`,
+   puis une écriture sur un serveur de test.
