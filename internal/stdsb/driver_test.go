@@ -211,3 +211,24 @@ func TestDBListFillsOptionalDetails(t *testing.T) {
 		t.Errorf("certs = %+v, err = %v", certs, err)
 	}
 }
+
+func TestStatusSaysUnsupportedWhenSecureBootResourceIsMissing(t *testing.T) {
+	s := testbmc.New(t)
+	s.Redfish("Supermicro", "1", "BMC", "1.0")
+	s.JSON("GET", sys, 200, map[string]any{})
+	c, _ := redfish.New(s.URL, "u", "p", redfish.Options{})
+	_, err := NewDriver("supermicro", c, 0).Status(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestStatusSaysLicenseRequired(t *testing.T) {
+	s, d := newFake(t, 0)
+	s.JSON("GET", sys+"/SecureBoot", 403, map[string]any{"error": map[string]any{"@Message.ExtendedInfo": []any{
+		map[string]any{"MessageId": "Base.1.0.OemLicenseNotPassed", "Message": "license", "Severity": "Critical"}}}})
+	_, err := d.Status(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "license is required") {
+		t.Errorf("err = %v", err)
+	}
+}

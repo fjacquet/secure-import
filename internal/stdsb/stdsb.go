@@ -73,6 +73,13 @@ func (h *Helper) Get(ctx context.Context) (Doc, error) {
 	}
 	var doc Doc
 	if err := h.C.GetJSON(ctx, p, &doc); err != nil {
+		var he *redfish.HTTPError
+		switch {
+		case strings.Contains(err.Error(), "OemLicenseNotPassed"):
+			return Doc{}, fmt.Errorf("a license is required to use Secure Boot on this BMC (OemLicenseNotPassed): %w", err)
+		case errors.As(err, &he) && he.Status == http.StatusNotFound:
+			return Doc{}, fmt.Errorf("Secure Boot is not supported by this system (no SecureBoot resource): %w", err)
+		}
 		return Doc{}, err
 	}
 	return doc, nil
