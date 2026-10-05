@@ -1,0 +1,8 @@
+.DS_Store
+# Vendor reference documents (proprietary, large) — kept locally, not versioned
+docs/*.json
+docs/*.yaml
+docs/*.yml
+docs/*.pdf
+# Input files contain credentials
+*.csv
