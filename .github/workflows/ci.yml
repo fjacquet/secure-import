@@ -8,25 +8,14 @@ on:
 permissions:
   contents: read
 
-jobs:
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: false # no go.sum: the project is stdlib-only
-      - name: Vet
-        run: go vet ./...
-      - name: Test
-        run: go test -race -count=1 ./...
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
-  lint-and-build:
+jobs:
+  # Every PR: one fast Linux job. Cross-compilation proves the code builds for
+  # Windows and macOS; the OS-specific runtime check runs on main (below).
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -36,5 +25,26 @@ jobs:
           cache: false # no go.sum: the project is stdlib-only
       - name: Formatting
         run: make check
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race -count=1 ./...
       - name: Cross-build every target
         run: make build-all
+
+  # After merge: run the tests on every OS (file permissions, renames, paths).
+  os-matrix:
+    if: github.event_name == 'push'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Test
+        run: go test -count=1 ./...
