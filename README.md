@@ -30,13 +30,34 @@ La plateforme est détectée automatiquement depuis Redfish (`--platform` pour l
 Les changements Secure Boot et BIOS restent en attente jusqu'au reboot ; l'outil ne
 redémarre jamais un serveur.
 
-## Utilisation prévue
+## Utilisation
 
 ```sh
 sbmgr -i examples/nodes.example.csv -o status.csv -a status
 sbmgr -i nodes.csv -o import.csv -a db_import --cert-file ./certs/vendor_db.der
 sbmgr -i nodes.csv -o plan.csv -a db_import --cert-file ./certs/vendor_db.der --dry-run   # rien n'est écrit
+sbmgr -i nodes.csv -o reset.csv -a reset_keys --reset-type ResetDB --confirm              # destructif
 ```
+
+Options principales (`sbmgr -h` donne la liste complète) :
+
+| Option | Rôle |
+|---|---|
+| `-a`, `--action` | `status`, `enable`, `disable`, `set_policy_custom`, `set_policy_standard`, `db_list`, `db_import`, `db_export`, `db_delete`, `reset_keys` |
+| `--dry-run` | lit et valide tout, n'écrit rien : le résultat dit ce qui changerait |
+| `--cert-file`, `--cert-uri` | fichier de certificat (PEM ou DER, 64 Kio max) ; URI d'un certificat pour `db_export` et `db_delete` |
+| `--reset-type`, `--confirm` | type de `reset_keys` ; confirmation obligatoire de cette action destructive |
+| `--retries N` | nouvelles tentatives sur erreur transitoire (défaut 2) ; jamais d'écriture rejouée |
+| `--concurrency`, `--timeout`, `--task-timeout`, `--no-wait` | hôtes en parallèle (20) ; délai par requête (30 s) ; durée de suivi d'une tâche (120 s) ; ne pas suivre les tâches |
+| `--platform`, `--method` | forcer la plateforme ; méthode d'import Dell `oem` ou `standard` |
+| `--verify-tls`, `--ca-file` | vérifier les certificats des BMC |
+| `--version` | version du binaire |
+
+Code de sortie : `0` tout a réussi ; `1` au moins un hôte a échoué ou une ligne du CSV a été
+ignorée ; `2` erreur d'usage ou d'entrée (fichier illisible, aucun hôte).
+
+Un `db_import` déjà présent n'écrit rien (« already present », comparaison par SHA-256).
+`enable` et `disable` restent en attente jusqu'au prochain démarrage.
 
 Fichier d'entrée : voir [`examples/nodes.example.csv`](examples/nodes.example.csv)
 (IP seule, plage sur n'importe quel octet, CIDR). Les mots de passe y sont en clair :
@@ -72,3 +93,4 @@ make test         # tests contre un faux BMC
   - [0003 — Un driver par plateforme](docs/adr/0003-un-driver-par-plateforme.md)
   - [0004 — Succès lu dans `ExtendedInfo`](docs/adr/0004-succes-lu-dans-extendedinfo.md)
   - [0005 — Dell : OEM sur iDRAC9, standard sur iDRAC10](docs/adr/0005-dell-methode-import.md)
+  - [0006 — `reset_keys` : action destructive, explicite et confirmée](docs/adr/0006-reset-keys.md)
