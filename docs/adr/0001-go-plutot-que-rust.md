@@ -25,6 +25,6 @@ Go 1.27, bibliothèque standard seule (`net/http`, `encoding/csv`, `log/slog`).
 
 ## Conséquences
 
-- Aucune dépendance tierce à suivre ni à auditer.
+- Aucune dépendance tierce à suivre ni à auditer (à l'origine ; cobra a été ajouté ensuite, voir ADR 0008).
 - Le binaire embarque le runtime Go et pèse quelques Mo.
 - Pas de gestion mémoire manuelle ni de garanties de Rust : acceptable pour un client HTTP.

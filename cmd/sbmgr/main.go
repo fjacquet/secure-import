@@ -5,8 +5,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -23,6 +21,8 @@ import (
 	"sbmgr/internal/redfish"
 	"sbmgr/internal/report"
 	"sbmgr/internal/runner"
+
+	"github.com/spf13/cobra"
 )
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
@@ -84,51 +84,107 @@ func (o *options) validate() string {
 	return ""
 }
 
+// versionLine is what --version and the version command print.
+func versionLine() string {
+	return fmt.Sprintf("sbmgr %s (%s, %s/%s)", version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+}
+
+// run parses args, runs the command and returns the process exit code
+// (0 ok, 1 a host or row failed, 2 usage or input error).
 func run(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("sbmgr", flag.ContinueOnError)
-	fs.SetOutput(stderr)
 	var o options
-	both := func(p *string, short, long, def, usage string) {
-		fs.StringVar(p, short, def, usage)
-		fs.StringVar(p, long, def, usage)
-	}
-	both(&o.input, "i", "input", "", "input CSV: start_ip,end_ip,username,password")
-	both(&o.output, "o", "output", "", "output file")
-	both(&o.action, "a", "action", "", "action: "+strings.Join(platform.AllActions, ", ")+", "+probeAction)
-	both(&o.format, "f", "format", "csv", "output format: csv or json")
-	fs.StringVar(&o.platform, "platform", "auto", "auto, idrac9, idrac10, ilo, lenovo or supermicro")
-	fs.StringVar(&o.method, "method", "", "Dell certificate import method: oem or standard (default oem on iDRAC9, standard on iDRAC10)")
-	fs.StringVar(&o.certURI, "cert-uri", "", "certificate URI for db_export and db_delete")
-	fs.StringVar(&o.certFile, "cert-file", "", "certificate file for db_import (PEM or DER, max 64 KiB) and db_export (host IP added to the name)")
-	fs.StringVar(&o.resetType, "reset-type", "", "reset_keys type: "+strings.Join(resetTypes, ", "))
-	fs.BoolVar(&o.confirm, "confirm", false, "confirm a destructive action (reset_keys)")
-	fs.StringVar(&o.probeDump, "probe-dump", "", "probe: write the redacted raw responses of every host to this JSON file")
-	fs.BoolVar(&o.dryRun, "dry-run", false, "read and validate only: report what would change, write nothing")
-	fs.IntVar(&o.retries, "retries", 2, "extra attempts on transient errors (connection resets on reads, BMC busy answers)")
-	fs.IntVar(&o.concurrency, "concurrency", 20, "hosts processed in parallel")
-	fs.DurationVar(&o.timeout, "timeout", 30*time.Second, "per-request timeout")
-	fs.DurationVar(&o.taskTimeout, "task-timeout", 120*time.Second, "how long to follow an asynchronous task")
-	fs.BoolVar(&o.noWait, "no-wait", false, "do not follow asynchronous tasks")
-	fs.BoolVar(&o.verifyTLS, "verify-tls", false, "verify BMC TLS certificates (off by default: BMCs are self-signed)")
-	fs.StringVar(&o.caFile, "ca-file", "", "PEM CA bundle used to verify BMC certificates (implies --verify-tls)")
-	fs.BoolVar(&o.showVersion, "version", false, "print the version and exit")
-	fs.BoolVar(&o.verbose, "v", false, "debug logs (never include secrets)")
-	fs.Usage = func() {
-		fmt.Fprintln(stderr, "Usage: sbmgr -i nodes.csv -o out.csv -a <action> [options]")
-		fmt.Fprintln(stderr, "New platform or firmware? Run -a probe first: it reads, writes nothing, and says what each BMC answers.")
-		fmt.Fprintln(stderr)
-		fs.PrintDefaults()
-	}
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
+	code := 0
+	root := newRootCmd(&o, stdout, stderr, &code)
+	root.SetArgs(args)
+	root.SetOut(stdout)
+	root.SetErr(stderr)
+	if err := root.Execute(); err != nil {
+		fmt.Fprintln(stderr, "sbmgr:", err)
 		return 2
 	}
-	if o.showVersion {
-		fmt.Fprintf(stdout, "sbmgr %s (%s, %s/%s)\n", version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
-		return 0
+	return code
+}
+
+func newRootCmd(o *options, stdout, stderr io.Writer, code *int) *cobra.Command {
+	root := &cobra.Command{
+		Use:   "sbmgr -i nodes.csv -o out.csv -a <action> [flags]",
+		Short: "Manage UEFI Secure Boot and the db certificate store over Redfish",
+		Long: "sbmgr manages UEFI Secure Boot and the db certificate store of a fleet of BMCs\n" +
+			"(Dell iDRAC, HPE iLO, Lenovo XCC, Supermicro) over Redfish.\n\n" +
+			"New platform or firmware? Run -a probe first: it reads, writes nothing, and says\n" +
+			"what each BMC answers.",
+		Args:          cobra.NoArgs,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(*cobra.Command, []string) error {
+			if o.showVersion {
+				fmt.Fprintln(stdout, versionLine())
+				return nil
+			}
+			*code = execute(*o, stdout, stderr)
+			return nil
+		},
 	}
+	root.AddCommand(&cobra.Command{
+		Use:   "version",
+		Short: "Print the version",
+		Args:  cobra.NoArgs,
+		Run:   func(*cobra.Command, []string) { fmt.Fprintln(stdout, versionLine()) },
+	})
+
+	fl := root.Flags()
+	fl.SortFlags = false // keep the thematic order below
+	// Input and output
+	fl.StringVarP(&o.input, "input", "i", "", "input CSV: start_ip,end_ip,username,password")
+	fl.StringVarP(&o.output, "output", "o", "", "output file")
+	fl.StringVarP(&o.format, "format", "f", "csv", "output format: csv or json")
+	// What to do
+	fl.StringVarP(&o.action, "action", "a", "", "action: "+strings.Join(platform.AllActions, ", ")+", "+probeAction)
+	fl.BoolVar(&o.dryRun, "dry-run", false, "read and validate only: report what would change, write nothing")
+	fl.StringVar(&o.certFile, "cert-file", "", "certificate file for db_import (PEM or DER, max 64 KiB) and db_export (host IP added to the name)")
+	fl.StringVar(&o.certURI, "cert-uri", "", "certificate URI for db_export and db_delete")
+	fl.StringVar(&o.resetType, "reset-type", "", "reset_keys type: "+strings.Join(resetTypes, ", "))
+	fl.BoolVar(&o.confirm, "confirm", false, "confirm a destructive action (reset_keys)")
+	fl.StringVar(&o.probeDump, "probe-dump", "", "probe: write the redacted raw responses of every host to this JSON file")
+	// Platform
+	fl.StringVar(&o.platform, "platform", "auto", "auto, idrac9, idrac10, ilo, lenovo or supermicro")
+	fl.StringVar(&o.method, "method", "", "Dell certificate import method: oem or standard (default oem on iDRAC9, standard on iDRAC10)")
+	// Network and tasks
+	fl.IntVar(&o.concurrency, "concurrency", 20, "hosts processed in parallel")
+	fl.DurationVar(&o.timeout, "timeout", 30*time.Second, "per-request timeout")
+	fl.IntVar(&o.retries, "retries", 2, "extra attempts on transient errors (connection resets on reads, BMC busy answers)")
+	fl.DurationVar(&o.taskTimeout, "task-timeout", 120*time.Second, "how long to follow an asynchronous task")
+	fl.BoolVar(&o.noWait, "no-wait", false, "do not follow asynchronous tasks")
+	// Security and diagnostics
+	fl.BoolVar(&o.verifyTLS, "verify-tls", false, "verify BMC TLS certificates (off by default: BMCs are self-signed)")
+	fl.StringVar(&o.caFile, "ca-file", "", "PEM CA bundle used to verify BMC certificates (implies --verify-tls)")
+	fl.BoolVarP(&o.verbose, "verbose", "v", false, "debug logs (never include secrets)")
+	fl.BoolVar(&o.showVersion, "version", false, "print the version and exit")
+
+	registerCompletions(root)
+	return root
+}
+
+// registerCompletions teaches the shell the fixed values and file types of the flags.
+func registerCompletions(root *cobra.Command) {
+	values := func(vs ...string) func(*cobra.Command, []string, string) ([]cobra.Completion, cobra.ShellCompDirective) {
+		return func(*cobra.Command, []string, string) ([]cobra.Completion, cobra.ShellCompDirective) {
+			return vs, cobra.ShellCompDirectiveNoFileComp
+		}
+	}
+	_ = root.RegisterFlagCompletionFunc("action", values(append(slices.Clone(platform.AllActions), probeAction)...))
+	_ = root.RegisterFlagCompletionFunc("platform", values(platformNames...))
+	_ = root.RegisterFlagCompletionFunc("method", values("oem", "standard"))
+	_ = root.RegisterFlagCompletionFunc("reset-type", values(resetTypes...))
+	_ = root.RegisterFlagCompletionFunc("format", values("csv", "json"))
+	_ = root.MarkFlagFilename("input", "csv")
+	_ = root.MarkFlagFilename("cert-file", "pem", "der", "crt", "cer")
+	_ = root.MarkFlagFilename("ca-file", "pem", "crt")
+	_ = root.MarkFlagFilename("probe-dump", "json")
+}
+
+// execute validates the options and processes the fleet.
+func execute(o options, stdout, stderr io.Writer) int {
 	if msg := o.validate(); msg != "" {
 		fmt.Fprintln(stderr, "sbmgr:", msg)
 		return 2

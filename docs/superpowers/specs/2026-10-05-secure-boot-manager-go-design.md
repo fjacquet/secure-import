@@ -1,6 +1,6 @@
 # sbmgr — Gestion Secure Boot par Redfish (design)
 
-Date : 2026-10-05 · Statut : à relire · Langage : Go 1.27, stdlib seule
+Date : 2026-10-05 · Statut : à relire · Langage : Go 1.27, bibliothèque standard + cobra (ADR 0008)
 
 ## 1. Intention
 
@@ -288,13 +288,14 @@ sbmgr -i nodes.csv -o out.csv -a <action> [options]
   -a probe               lectures seules : contrôle ce que répond chaque BMC (ADR 0007)
   --probe-dump PATH      probe : réponses brutes expurgées, fichier 0600
   --retries N            nouvelles tentatives sur erreur transitoire (défaut 2)
-  --version              affiche la version
+  --version, sbmgr version  affiche la version
+  sbmgr completion bash|zsh|fish|powershell   script de complétion du shell (ADR 0008)
+  -v, --verbose          logs détaillés (jamais de secret)
   --concurrency N        défaut 20
   --timeout 30s          par requête
   --task-timeout 120s    suivi de tâche
   --no-wait              ne pas suivre les tâches
   --verify-tls, --ca-file PATH
-  -v                     logs détaillés (jamais de secret)
 ```
 
 `--hashtype` est supprimé (jamais utilisé dans le script).

@@ -4,7 +4,7 @@
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
 ![Licence](https://img.shields.io/badge/licence-MIT-green)
 ![Statut](https://img.shields.io/badge/statut-alpha-orange)
-![Dépendances](https://img.shields.io/badge/dépendances-stdlib%20seule-brightgreen)
+![Dépendances](https://img.shields.io/badge/dépendances-cobra-brightgreen)
 ![Binaire](https://img.shields.io/badge/binaire-unique%2C%20sans%20runtime-blue)
 ![OS](https://img.shields.io/badge/OS-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 ![Redfish](https://img.shields.io/badge/Redfish-DMTF%20DSP0266%201.14-informational)
@@ -67,6 +67,18 @@ Fichier d'entrée : voir [`examples/nodes.example.csv`](examples/nodes.example.c
 (IP seule, plage sur n'importe quel octet, CIDR). Les mots de passe y sont en clair :
 ne le versionnez pas.
 
+## Complétion du shell
+
+```sh
+sbmgr completion bash > /etc/bash_completion.d/sbmgr          # bash
+sbmgr completion zsh  > "${fpath[1]}/_sbmgr"                  # zsh
+sbmgr completion fish > ~/.config/fish/completions/sbmgr.fish # fish
+sbmgr completion powershell | Out-String | Invoke-Expression  # PowerShell
+```
+
+Le shell complète les actions (`-a`), `--platform`, `--method`, `--reset-type`, `--format`
+et les fichiers (`-i`, `--cert-file`, `--ca-file`, `--probe-dump`).
+
 ## Sécurité
 
 La vérification TLS est **désactivée par défaut** (les BMC ont presque toujours un
@@ -99,3 +111,4 @@ make test         # tests contre un faux BMC
   - [0005 — Dell : OEM sur iDRAC9, standard sur iDRAC10](docs/adr/0005-dell-methode-import.md)
   - [0006 — `reset_keys` : action destructive, explicite et confirmée](docs/adr/0006-reset-keys.md)
   - [0007 — `probe` : valider une plateforme par des lectures](docs/adr/0007-action-probe.md)
+  - [0008 — cobra pour la ligne de commande](docs/adr/0008-cobra-pour-la-ligne-de-commande.md)
