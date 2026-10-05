@@ -3,6 +3,7 @@ package dell
 import (
 	"context"
 	"encoding/json"
+	pemEncode "encoding/pem"
 	"strings"
 	"testing"
 	"time"
@@ -50,7 +51,7 @@ func TestIdrac10ListsStandardDatabase(t *testing.T) {
 func TestIdrac10ImportPostsPEMJSON(t *testing.T) {
 	s, d := newFake10(t)
 	s.JSON("POST", dbs10+"/db/Certificates", 201, map[string]any{})
-	pem := "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+	pem := string(pemEncode.EncodeToMemory(&pemEncode.Block{Type: "CERTIFICATE", Bytes: realCert(t)}))
 	ch, err := d.DBImport(context.Background(), writeFile(t, "c.pem", []byte(pem)))
 	if err != nil || !strings.Contains(ch.Message, "Certificate import successful") {
 		t.Fatalf("ch = %+v, err = %v", ch, err)

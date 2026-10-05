@@ -130,3 +130,36 @@ func TestDBDeleteAndUnsupportedActions(t *testing.T) {
 		t.Errorf("SetPolicy err = %v", err)
 	}
 }
+
+func critical(id, text string) map[string]any {
+	return map[string]any{"@Message.ExtendedInfo": []any{
+		map[string]any{"MessageId": id, "Message": text, "Severity": "Critical", "Resolution": "None"}}}
+}
+
+func TestSetSecureBootCriticalMessageIsFailure(t *testing.T) {
+	s, d := newFake(t, 0)
+	s.JSON("PATCH", sys+"/SecureBoot", 200, critical("Base.1.0.GeneralError", "boom"))
+	if _, err := d.SetSecureBoot(context.Background(), true); err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestDBImportCriticalMessageIsFailure(t *testing.T) {
+	s, d := newFake(t, 0)
+	s.JSON("POST", dbs+"/db/Certificates", 200, critical("FQXSFPU4097G", "refused"))
+	p := writeFile(t, testCertDER(t))
+	if _, err := d.DBImport(context.Background(), p); err == nil || !strings.Contains(err.Error(), "refused") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestDBImportRejectsOversizedFile(t *testing.T) {
+	s, d := newFake(t, 0)
+	p := writeFile(t, make([]byte, MaxCertFile+1))
+	if _, err := d.DBImport(context.Background(), p); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Errorf("err = %v", err)
+	}
+	if s.Count("POST", dbs+"/db/Certificates") != 0 {
+		t.Error("nothing must be sent")
+	}
+}

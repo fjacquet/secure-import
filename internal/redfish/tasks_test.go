@@ -62,3 +62,15 @@ func TestWaitTaskFailureAndTimeout(t *testing.T) {
 		t.Errorf("missing task: err = %v", err)
 	}
 }
+
+func TestWaitTaskReadsDellJobStateWhenNoTaskState(t *testing.T) {
+	s := testbmc.New(t)
+	s.Redfish("Dell", "S1", "16G", "7.0.0.0")
+	job := "/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/JID_1"
+	s.JSON("GET", job, 200, map[string]any{"Oem": map[string]any{"Dell": map[string]any{"JobState": "Scheduled", "JobType": "BIOSConfiguration"}}})
+	c := newClient(t, s, Options{PollInterval: time.Millisecond, TaskTimeout: 50 * time.Millisecond})
+	tr, err := c.WaitTask(context.Background(), job)
+	if err != nil || tr.Outcome != OutcomeScheduled {
+		t.Errorf("tr = %+v, err = %v", tr, err)
+	}
+}

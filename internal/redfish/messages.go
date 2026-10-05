@@ -61,6 +61,17 @@ func IsSuccess(m Message) bool {
 	return IsSuccessID(m.ID) && !strings.EqualFold(m.Severity, "Critical")
 }
 
+// FirstCritical returns the first Critical message, if any. A Critical message
+// always means failure, whatever the HTTP status or the other messages say.
+func FirstCritical(msgs []Message) (Message, bool) {
+	for _, m := range msgs {
+		if strings.EqualFold(m.Severity, "Critical") {
+			return m, true
+		}
+	}
+	return Message{}, false
+}
+
 // NeedsReboot reports whether any message says a restart or reboot is needed.
 func NeedsReboot(msgs []Message) bool {
 	for _, m := range msgs {

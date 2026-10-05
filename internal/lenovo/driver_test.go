@@ -2,10 +2,18 @@ package lenovo
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"sbmgr/internal/platform"
 	"sbmgr/internal/redfish"
@@ -60,7 +68,7 @@ func TestDBImportExplainsFQXSFPU4097G(t *testing.T) {
 	s, d := newFake(t)
 	s.JSON("POST", sb+"/SecureBootDatabases/db/Certificates", 400, msg("FQXSFPU4097G", "Secure Boot policy is not Custom"))
 	p := filepath.Join(t.TempDir(), "c.pem")
-	if err := os.WriteFile(p, []byte("-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"), 0o600); err != nil {
+	if err := os.WriteFile(p, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: realCert(t)}), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, err := d.DBImport(context.Background(), p)
@@ -82,4 +90,19 @@ func TestStatusListAndSupports(t *testing.T) {
 	if d.Name() != "lenovo" || d.Supports(platform.ActionPolicyCustom) || !d.Supports(platform.ActionDBImport) {
 		t.Error("name or Supports() wrong")
 	}
+}
+
+func realCert(t *testing.T) []byte {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "t"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return der
 }

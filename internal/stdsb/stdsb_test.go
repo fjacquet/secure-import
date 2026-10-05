@@ -1,6 +1,7 @@
 package stdsb
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -54,5 +55,20 @@ func TestToPEMRejectsGarbageAndEmpty(t *testing.T) {
 		if _, err := ToPEM(in); err == nil || !strings.Contains(err.Error(), "not a PEM or DER certificate") {
 			t.Errorf("ToPEM(%q) err = %v", in, err)
 		}
+	}
+}
+
+func TestToPEMRejectsPrivateKeyAndKeepsOnlyCertificates(t *testing.T) {
+	key := []byte("-----BEGIN PRIVATE KEY-----\nQUJD\n-----END PRIVATE KEY-----\n")
+	if _, err := ToPEM(key); err == nil {
+		t.Error("a private key must be rejected")
+	}
+	cert := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: testCertDER(t)})
+	out, err := ToPEM(append([]byte("Certificate:\n  text dump\n"), cert...))
+	if err != nil || !bytes.HasPrefix(out, []byte("-----BEGIN CERTIFICATE-----")) || bytes.Contains(out, []byte("text dump")) {
+		t.Errorf("out = %q, err = %v", out, err)
+	}
+	if _, err := ToPEM(append(cert, key...)); err == nil {
+		t.Error("a bundle holding a private key must be rejected")
 	}
 }

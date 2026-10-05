@@ -68,3 +68,20 @@ func TestSetPolicyNoWaitSkipsTaskPolling(t *testing.T) {
 		t.Error("--no-wait must not poll the task")
 	}
 }
+
+func TestSetPolicyCriticalMessageIsFailure(t *testing.T) {
+	s, d := newFake9(t, "")
+	s.JSONH("PATCH", sys+"/Bios/Settings", 202, map[string]string{"Location": task}, map[string]any{
+		"@Message.ExtendedInfo": []any{map[string]any{"MessageId": "IDRAC.2.9.SYS403", "Message": "nope", "Severity": "Critical"}}})
+	if _, err := d.SetPolicy(context.Background(), "Custom"); err == nil || !strings.Contains(err.Error(), "nope") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestSetPolicyUnverifiedTaskIsAnError(t *testing.T) {
+	s, d := newFake9(t, "", redfish.Options{PollInterval: time.Millisecond, TaskTimeout: 20 * time.Millisecond})
+	s.JSON("GET", task, 200, map[string]any{"TaskState": "Running", "TaskStatus": "OK", "Name": "x"})
+	if _, err := d.SetPolicy(context.Background(), "Custom"); err == nil {
+		t.Error("a task that never settles must not be reported as success")
+	}
+}

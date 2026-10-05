@@ -170,7 +170,7 @@ func TestDBActions(t *testing.T) {
 	f = newFake()
 	Run(ctx, f, "ip", platform.ActionDBDelete, Params{CertURI: "C:/Program Files/Git/redfish/v1/x/DB/Cust.7"})
 	Run(ctx, f, "ip", platform.ActionDBExport, Params{CertURI: "redfish/v1/x/DB/Cust.7", CertFile: "o.der"})
-	if !slices.Contains(f.calls, "delete=/redfish/v1/x/DB/Cust.7") || !slices.Contains(f.calls, "export=/redfish/v1/x/DB/Cust.7>o.der") {
+	if !slices.Contains(f.calls, "delete=/redfish/v1/x/DB/Cust.7") || !slices.Contains(f.calls, "export=/redfish/v1/x/DB/Cust.7>o_ip.der") {
 		t.Errorf("calls = %v", f.calls)
 	}
 	f = newFake()

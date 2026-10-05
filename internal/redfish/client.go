@@ -108,7 +108,10 @@ func New(host, user, pass string, opts Options) (*Client, error) {
 	}
 	return &Client{
 		base: strings.TrimRight(base, "/"), user: user, pass: pass, opts: opts,
-		hc: &http.Client{Transport: tr, Timeout: opts.Timeout},
+		hc: &http.Client{Transport: tr, Timeout: opts.Timeout,
+			// Never follow redirects: they could carry the session token or the login
+			// body to another host. A 3xx surfaces as an HTTPError.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 	}, nil
 }
 
@@ -271,6 +274,14 @@ func (c *Client) Login(ctx context.Context) error {
 	if tok := resp.Header.Get("X-Auth-Token"); tok != "" {
 		c.token = tok
 		c.session = resp.Header.Get("Location")
+		if c.session == "" {
+			var doc struct {
+				ID string `json:"@odata.id"`
+			}
+			if json.Unmarshal(resp.Body, &doc) == nil {
+				c.session = doc.ID
+			}
+		}
 	}
 	return nil
 }

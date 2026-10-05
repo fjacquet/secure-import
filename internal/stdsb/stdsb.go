@@ -9,7 +9,9 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
+	"os"
 	"path"
 	"strings"
 
@@ -162,10 +164,55 @@ func (h *Helper) ImportPEM(ctx context.Context, id string, pemBytes []byte) (*re
 		"CertificateString": string(pemBytes), "CertificateType": "PEM"})
 }
 
-// ToPEM returns PEM bytes for a PEM or DER X.509 certificate.
+// MaxCertFile caps the size of a certificate file read from disk.
+const MaxCertFile = 64 << 10
+
+// ReadCertFile reads a certificate file, refusing missing, empty and oversized files.
+func ReadCertFile(file string) ([]byte, error) {
+	fi, err := os.Stat(file)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("certificate file not found: %s", file)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read certificate file: %w", err)
+	}
+	if fi.Size() > MaxCertFile {
+		return nil, fmt.Errorf("certificate file is too large: %d bytes (limit %d)", fi.Size(), MaxCertFile)
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return nil, fmt.Errorf("read certificate file: %w", err)
+	}
+	if len(data) == 0 {
+		return nil, fmt.Errorf("certificate file is empty: %s", file)
+	}
+	return data, nil
+}
+
+// ToPEM returns clean PEM bytes for a PEM or DER X.509 certificate. PEM input
+// must hold only CERTIFICATE blocks (a private key is rejected); text around the
+// blocks is dropped.
 func ToPEM(data []byte) ([]byte, error) {
 	if bytes.Contains(data, []byte("-----BEGIN")) {
-		return data, nil
+		var out []byte
+		for rest := data; ; {
+			var block *pem.Block
+			block, rest = pem.Decode(rest)
+			if block == nil {
+				break
+			}
+			if block.Type != "CERTIFICATE" {
+				return nil, fmt.Errorf("PEM block %q is not a certificate", block.Type)
+			}
+			if _, err := x509.ParseCertificate(block.Bytes); err != nil {
+				return nil, fmt.Errorf("not a valid certificate: %w", err)
+			}
+			out = append(out, pem.EncodeToMemory(block)...)
+		}
+		if out == nil {
+			return nil, fmt.Errorf("no valid PEM certificate found")
+		}
+		return out, nil
 	}
 	cert, err := x509.ParseCertificate(data)
 	if err != nil {
@@ -174,10 +221,15 @@ func ToPEM(data []byte) ([]byte, error) {
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}), nil
 }
 
-// DERLen returns the DER size of the first certificate in pemBytes, or 0.
+// DERLen returns the largest DER size among the certificates in pemBytes, or 0.
 func DERLen(pemBytes []byte) int {
-	if block, _ := pem.Decode(pemBytes); block != nil {
-		return len(block.Bytes)
+	n := 0
+	for rest := pemBytes; ; {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			return n
+		}
+		n = max(n, len(block.Bytes))
 	}
-	return 0
 }

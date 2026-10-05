@@ -4,6 +4,8 @@ package actions
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	"sbmgr/internal/platform"
 	"sbmgr/internal/redfish"
@@ -52,7 +54,7 @@ func runDB(ctx context.Context, p platform.Platform, action string, par Params, 
 		ch, err := p.DBImport(ctx, par.CertFile)
 		finish(r, ch, err)
 	case platform.ActionDBExport:
-		ch, err := p.DBExport(ctx, redfish.SanitizePath(par.CertURI), par.CertFile)
+		ch, err := p.DBExport(ctx, redfish.SanitizePath(par.CertURI), hostFile(par.CertFile, r.IP))
 		finish(r, ch, err)
 	case platform.ActionDBDelete:
 		ch, err := p.DBDelete(ctx, redfish.SanitizePath(par.CertURI))
@@ -144,4 +146,11 @@ func setEnable(ctx context.Context, p platform.Platform, action string, st platf
 	}
 	r.NewStatus = platform.PendingStatus(word, ch.RebootRequired)
 	r.Success = true
+}
+
+// hostFile inserts the host address before the extension so that hosts exported
+// in parallel never write the same file.
+func hostFile(file, ip string) string {
+	ext := filepath.Ext(file)
+	return strings.TrimSuffix(file, ext) + "_" + strings.NewReplacer(":", "-", "/", "-").Replace(ip) + ext
 }

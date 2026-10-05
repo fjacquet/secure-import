@@ -172,3 +172,36 @@ func TestSanitizePath(t *testing.T) {
 		}
 	}
 }
+
+func TestRedirectIsNotFollowed(t *testing.T) {
+	other := testbmc.New(t)
+	s := testbmc.New(t)
+	s.Redfish("Dell", "S1", "16G", "7.0.0.0")
+	s.JSONH("GET", "/redfish/v1/Systems", 302, map[string]string{"Location": other.URL + "/leak"}, nil)
+	c := newClient(t, s, Options{})
+	if err := c.Login(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Do(context.Background(), http.MethodGet, "/redfish/v1/Systems", nil, nil); err == nil {
+		t.Error("a redirect must be an error")
+	}
+	if len(other.Requests()) != 0 {
+		t.Error("the redirect target must never be contacted")
+	}
+}
+
+func TestLogoutUsesSessionIDFromBodyWhenNoLocation(t *testing.T) {
+	s := testbmc.New(t)
+	s.Redfish("Dell", "S1", "16G", "7.0.0.0")
+	s.JSONH("POST", "/redfish/v1/SessionService/Sessions", 201, map[string]string{"X-Auth-Token": "tok"},
+		map[string]any{"@odata.id": "/redfish/v1/SessionService/Sessions/9"})
+	s.JSON("DELETE", "/redfish/v1/SessionService/Sessions/9", 204, nil)
+	c := newClient(t, s, Options{})
+	if err := c.Login(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	c.Logout(context.Background())
+	if s.Count("DELETE", "/redfish/v1/SessionService/Sessions/9") != 1 {
+		t.Error("session must be deleted using the body's @odata.id")
+	}
+}

@@ -2,12 +2,19 @@ package dell
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"io"
+	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"sbmgr/internal/testbmc"
 )
@@ -55,11 +62,12 @@ func TestDBImportUploadsMultipartToStore(t *testing.T) {
 		got <- [2]string{h.Filename, string(b)}
 		testbmc.WriteJSON(w, 200, info("Base.1.12.Success", "None"))
 	})
-	ch, err := d.DBImport(context.Background(), writeFile(t, "dell_2025.der", []byte("DER")))
+	want := realCert(t)
+	ch, err := d.DBImport(context.Background(), writeFile(t, "dell_2025.der", want))
 	if err != nil || !strings.Contains(ch.Message, "Certificate import successful") {
 		t.Fatalf("ch = %+v, err = %v", ch, err)
 	}
-	if v := <-got; v[0] != "dell_2025.der" || v[1] != "DER" {
+	if v := <-got; v[0] != "dell_2025.der" || v[1] != string(want) {
 		t.Errorf("uploaded %v", v)
 	}
 }
@@ -69,7 +77,7 @@ func TestDBImportUploadsMultipartToStore(t *testing.T) {
 func TestDBImportAcceptsNewerMessageIdsAndReportsReboot(t *testing.T) {
 	s, d := newFake9(t, "")
 	s.JSON("POST", store+"/", 200, info("IDRAC.2.9.SYS430", "Restart the server."))
-	ch, err := d.DBImport(context.Background(), writeFile(t, "c.der", []byte("DER")))
+	ch, err := d.DBImport(context.Background(), writeFile(t, "c.der", realCert(t)))
 	if err != nil || !ch.RebootRequired || !strings.Contains(ch.Message, "Reboot required to take effect") {
 		t.Fatalf("ch = %+v, err = %v", ch, err)
 	}
@@ -122,4 +130,38 @@ func TestDBDeleteSendsDELETE(t *testing.T) {
 	if s.Count("DELETE", store+"/CustSecbootpolicy.7") != 1 {
 		t.Error("DELETE was not sent")
 	}
+}
+
+func TestDBImportCriticalMessageIsFailure(t *testing.T) {
+	s, d := newFake9(t, "")
+	s.JSON("POST", store+"/", 200, map[string]any{"@Message.ExtendedInfo": []any{
+		map[string]any{"MessageId": "IDRAC.2.9.SYS403", "Message": "duplicate", "Severity": "Critical"}}})
+	if _, err := d.DBImport(context.Background(), writeFile(t, "c.der", realCert(t))); err == nil || !strings.Contains(err.Error(), "duplicate") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestDBImportRejectsNonCertificate(t *testing.T) {
+	s, d := newFake9(t, "")
+	if _, err := d.DBImport(context.Background(), writeFile(t, "k.pem", []byte("-----BEGIN PRIVATE KEY-----\nQUJD\n-----END PRIVATE KEY-----\n"))); err == nil {
+		t.Error("private key must be rejected")
+	}
+	if s.Count("POST", store+"/") != 0 {
+		t.Error("nothing must be uploaded")
+	}
+}
+
+func realCert(t *testing.T) []byte {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "t"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return der
 }

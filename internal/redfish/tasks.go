@@ -62,10 +62,22 @@ func (c *Client) WaitTask(ctx context.Context, location string) (TaskResult, err
 		if d := t.Oem.Dell; d.JobState != "" {
 			res.Detail += fmt.Sprintf(". Messages: Dell.%s.%s: %s", d.JobType, d.JobState, d.Message)
 		}
-		switch t.TaskState {
+		state := t.TaskState
+		fromJob := state == ""
+		if fromJob { // Dell Jobs expose JobState instead of TaskState
+			switch t.Oem.Dell.JobState {
+			case "Scheduled", "New":
+				state = "Scheduled"
+			case "Completed":
+				state = "Completed"
+			case "Failed":
+				state = "Exception"
+			}
+		}
+		switch state {
 		case "New", "Scheduled":
 			res.Outcome = OutcomeScheduled
-			if t.TaskStatus != "OK" {
+			if t.TaskStatus != "OK" && !(fromJob && t.TaskStatus == "") {
 				res.Outcome = OutcomeFailed
 			}
 			return res, nil

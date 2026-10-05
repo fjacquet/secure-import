@@ -2,9 +2,7 @@ package dell
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,6 +10,7 @@ import (
 
 	"sbmgr/internal/platform"
 	"sbmgr/internal/redfish"
+	"sbmgr/internal/stdsb"
 )
 
 // dbStore returns the OEM "DB" certificate store URI: the Dell certificates link
@@ -74,15 +73,12 @@ func (d *Driver) DBImport(ctx context.Context, file string) (platform.Change, er
 	if d.method == "standard" {
 		return d.std.DBImport(ctx, file)
 	}
-	data, err := os.ReadFile(file)
-	if errors.Is(err, fs.ErrNotExist) {
-		return platform.Change{}, fmt.Errorf("certificate file not found: %s", file)
-	}
+	data, err := stdsb.ReadCertFile(file)
 	if err != nil {
-		return platform.Change{}, fmt.Errorf("read certificate file: %w", err)
+		return platform.Change{}, err
 	}
-	if len(data) == 0 {
-		return platform.Change{}, fmt.Errorf("certificate file is empty: %s", file)
+	if _, err := stdsb.ToPEM(data); err != nil {
+		return platform.Change{}, err
 	}
 	store, err := d.dbStore(ctx)
 	if err != nil {
@@ -93,6 +89,9 @@ func (d *Driver) DBImport(ctx context.Context, file string) (platform.Change, er
 		return platform.Change{}, err
 	}
 	msgs := redfish.ParseMessages(resp.Body)
+	if _, bad := redfish.FirstCritical(msgs); bad {
+		return platform.Change{}, fmt.Errorf("certificate import refused. Messages: %s", redfish.Summarize(msgs))
+	}
 	restart := ""
 	if redfish.NeedsReboot(msgs) {
 		restart = " (Reboot required to take effect)"

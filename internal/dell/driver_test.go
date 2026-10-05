@@ -119,8 +119,8 @@ func TestSetSecureBootCriticalSYS4xxIsNotSuccess(t *testing.T) {
 	s, d := newFake9(t, "")
 	s.JSON("PATCH", sys+"/SecureBoot", 200, map[string]any{"@Message.ExtendedInfo": []any{
 		map[string]any{"MessageId": "IDRAC.2.9.SYS403", "Message": "resource not found", "Severity": "Critical"}}})
-	if _, err := d.SetSecureBoot(context.Background(), true); err == nil || !strings.Contains(err.Error(), "unknown response") {
-		t.Errorf("err = %v, want unknown response for a Critical SYS4xx", err)
+	if _, err := d.SetSecureBoot(context.Background(), true); err == nil || !strings.Contains(err.Error(), "refused") {
+		t.Errorf("err = %v, want a refusal for a Critical SYS4xx", err)
 	}
 }
 
@@ -146,5 +146,15 @@ func TestSupportsPerGeneration(t *testing.T) {
 		if d10.Supports(a) != want {
 			t.Errorf("idrac10 Supports(%s) = %v, want %v", a, !want, want)
 		}
+	}
+}
+
+func TestSetSecureBootCriticalBesideSuccessIsFailure(t *testing.T) {
+	s, d := newFake9(t, "")
+	s.JSON("PATCH", sys+"/SecureBoot", 200, map[string]any{"@Message.ExtendedInfo": []any{
+		map[string]any{"MessageId": "Base.1.12.Success", "Message": "ok", "Severity": "OK"},
+		map[string]any{"MessageId": "IDRAC.2.9.SYS403", "Message": "bad", "Severity": "Critical"}}})
+	if _, err := d.SetSecureBoot(context.Background(), true); err == nil || !strings.Contains(err.Error(), "bad") {
+		t.Errorf("err = %v", err)
 	}
 }

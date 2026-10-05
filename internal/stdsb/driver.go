@@ -2,11 +2,8 @@ package stdsb
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
 	"net/http"
-	"os"
 	"slices"
 
 	"sbmgr/internal/platform"
@@ -47,8 +44,12 @@ func (d *Driver) SetSecureBoot(ctx context.Context, enable bool) (platform.Chang
 	if err != nil {
 		return platform.Change{}, err
 	}
+	msgs := redfish.ParseMessages(resp.Body)
+	if _, bad := redfish.FirstCritical(msgs); bad {
+		return platform.Change{}, fmt.Errorf("secure boot change refused. Messages: %s", redfish.Summarize(msgs))
+	}
 	return platform.Change{
-		Message:        "Success. Messages: " + redfish.Summarize(redfish.ParseMessages(resp.Body)),
+		Message:        "Success. Messages: " + redfish.Summarize(msgs),
 		RebootRequired: true,
 	}, nil
 }
@@ -57,15 +58,9 @@ func (d *Driver) DBList(ctx context.Context) ([]platform.Cert, error) { return d
 
 // DBImport enrols a PEM or DER certificate file into the "db" database.
 func (d *Driver) DBImport(ctx context.Context, file string) (platform.Change, error) {
-	data, err := os.ReadFile(file)
-	if errors.Is(err, fs.ErrNotExist) {
-		return platform.Change{}, fmt.Errorf("certificate file not found: %s", file)
-	}
+	data, err := ReadCertFile(file)
 	if err != nil {
-		return platform.Change{}, fmt.Errorf("read certificate file: %w", err)
-	}
-	if len(data) == 0 {
-		return platform.Change{}, fmt.Errorf("certificate file is empty: %s", file)
+		return platform.Change{}, err
 	}
 	pemBytes, err := ToPEM(data)
 	if err != nil {
@@ -79,6 +74,9 @@ func (d *Driver) DBImport(ctx context.Context, file string) (platform.Change, er
 		return platform.Change{}, err
 	}
 	msgs := redfish.ParseMessages(resp.Body)
+	if _, bad := redfish.FirstCritical(msgs); bad {
+		return platform.Change{}, fmt.Errorf("certificate import refused. Messages: %s", redfish.Summarize(msgs))
+	}
 	return platform.Change{
 		Message:        "Certificate import successful. Messages: " + redfish.Summarize(msgs),
 		RebootRequired: redfish.NeedsReboot(msgs),

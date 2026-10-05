@@ -123,6 +123,9 @@ func (d *Driver) SetSecureBoot(ctx context.Context, enable bool) (platform.Chang
 		return platform.Change{}, err
 	}
 	msgs := redfish.ParseMessages(resp.Body)
+	if _, bad := redfish.FirstCritical(msgs); bad {
+		return platform.Change{}, fmt.Errorf("secure boot change refused. Messages: %s", redfish.Summarize(msgs))
+	}
 	ok := len(msgs) == 0
 	for _, m := range msgs {
 		if redfish.IsSuccess(m) {
@@ -160,13 +163,16 @@ func (d *Driver) SetPolicy(ctx context.Context, policy string) (platform.Change,
 	}
 	location := resp.Header.Get("Location")
 	msgs := redfish.ParseMessages(resp.Body)
+	if _, bad := redfish.FirstCritical(msgs); bad {
+		return platform.Change{}, fmt.Errorf("policy change refused. Messages: %s", redfish.Summarize(msgs))
+	}
 	ch := platform.Change{Location: location, JobID: jobID(location), RebootRequired: redfish.NeedsReboot(msgs)}
 	verification := ""
 	if location != "" && !d.c.NoWait() {
 		tr, err := d.c.WaitTask(ctx, location)
 		switch {
 		case err != nil:
-			verification = " (Verification: " + err.Error() + ")"
+			return platform.Change{}, fmt.Errorf("policy change staged but not verified: %w", err)
 		case tr.Outcome == redfish.OutcomeFailed:
 			return platform.Change{}, fmt.Errorf("policy change task failed. %s", tr.Detail)
 		default:
