@@ -28,12 +28,12 @@ import (
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 type options struct {
-	input, output, action, format                             string
-	platform, method, certURI, certFile, resetType, probeDump string
-	caFile                                                    string
-	concurrency, retries                                      int
-	timeout, taskTimeout                                      time.Duration
-	noWait, verifyTLS, verbose, dryRun, confirm, showVersion  bool
+	input, output, action, format                                                                  string
+	platform, method, certURI, certFile, resetType, probeDump, database, signature, signatureOwner string
+	caFile                                                                                         string
+	concurrency, retries                                                                           int
+	timeout, taskTimeout                                                                           time.Duration
+	noWait, verifyTLS, verbose, dryRun, confirm, showVersion                                       bool
 }
 
 const probeAction = "probe" // read-only: checks what each BMC answers
@@ -45,6 +45,8 @@ const probeAction = "probe" // read-only: checks what each BMC answers
 var version = "dev"
 
 var resetTypes = []string{"ResetAllKeysToDefault", "DeleteAllKeys", "DeletePK", "ResetPK", "ResetKEK", "ResetDB", "ResetDBX"}
+
+var databaseNames = []string{"db", "KEK", "PK", "dbx"}
 
 var platformNames = []string{"auto", "idrac9", "idrac10", "ilo", "lenovo", "supermicro"}
 
@@ -64,13 +66,25 @@ func (o *options) validate() string {
 		return fmt.Sprintf("unknown platform %q (choose one of: %s)", o.platform, strings.Join(platformNames, ", "))
 	case o.method != "" && o.method != "oem" && o.method != "standard":
 		return "method must be oem or standard"
+	case o.database != "" && !slices.Contains(databaseNames, o.database):
+		return "database must be one of " + strings.Join(databaseNames, ", ")
+	case o.signature != "" && (o.action != platform.ActionDBImport || o.database != "dbx"):
+		return "--signature only applies to db_import with --database dbx"
+	case o.signature != "" && o.certFile != "":
+		return "use either --signature or --cert-file, not both"
+	case o.signature != "" && len(o.signature) != 64:
+		return "--signature must be 64 hexadecimal characters (a SHA-256)"
+	case o.action == platform.ActionDBImport && o.database == "dbx" && o.signature == "":
+		return "dbx holds signatures: db_import needs --signature, not --cert-file"
+	case o.action == platform.ActionResetKeys && o.database != "" && o.resetType != "ResetAllKeysToDefault" && o.resetType != "DeleteAllKeys":
+		return "with --database, reset-type must be ResetAllKeysToDefault or DeleteAllKeys"
 	case o.action == platform.ActionResetKeys && o.resetType == "":
 		return "reset_keys requires --reset-type"
 	case o.action == platform.ActionResetKeys && !slices.Contains(resetTypes, o.resetType):
 		return "reset-type must be one of " + strings.Join(resetTypes, ", ")
 	case o.action == platform.ActionResetKeys && !o.confirm && !o.dryRun:
 		return "reset_keys is destructive (DeleteAllKeys and DeletePK leave the server in Setup Mode) and requires --confirm"
-	case o.action == platform.ActionDBImport && o.certFile == "":
+	case o.action == platform.ActionDBImport && o.certFile == "" && o.signature == "":
 		return "db_import requires --cert-file"
 	case o.action == platform.ActionDBDelete && o.certURI == "":
 		return "db_delete requires --cert-uri"
@@ -142,6 +156,9 @@ func newRootCmd(o *options, stdout, stderr io.Writer, code *int) *cobra.Command 
 	fl.StringVarP(&o.action, "action", "a", "", "action: "+strings.Join(platform.AllActions, ", ")+", "+probeAction)
 	fl.BoolVar(&o.dryRun, "dry-run", false, "read and validate only: report what would change, write nothing")
 	fl.StringVar(&o.certFile, "cert-file", "", "certificate file for db_import (PEM or DER, max 64 KiB) and db_export (host IP added to the name)")
+	fl.StringVar(&o.database, "database", "", "Secure Boot database: db (default), KEK, PK or dbx. Writes to PK, KEK and dbx need --confirm (PK and KEK also SetupMode or AuditMode)")
+	fl.StringVar(&o.signature, "signature", "", "dbx: SHA-256 (64 hex characters) to add with db_import --database dbx")
+	fl.StringVar(&o.signatureOwner, "signature-owner", "", "dbx: optional signature owner GUID")
 	fl.StringVar(&o.certURI, "cert-uri", "", "certificate URI for db_export and db_delete")
 	fl.StringVar(&o.resetType, "reset-type", "", "reset_keys type: "+strings.Join(resetTypes, ", "))
 	fl.BoolVar(&o.confirm, "confirm", false, "confirm a destructive action (reset_keys)")
@@ -174,6 +191,7 @@ func registerCompletions(root *cobra.Command) {
 	}
 	_ = root.RegisterFlagCompletionFunc("action", values(append(slices.Clone(platform.AllActions), probeAction)...))
 	_ = root.RegisterFlagCompletionFunc("platform", values(platformNames...))
+	_ = root.RegisterFlagCompletionFunc("database", values(databaseNames...))
 	_ = root.RegisterFlagCompletionFunc("method", values("oem", "standard"))
 	_ = root.RegisterFlagCompletionFunc("reset-type", values(resetTypes...))
 	_ = root.RegisterFlagCompletionFunc("format", values("csv", "json"))
@@ -223,9 +241,10 @@ func execute(o options, stdout, stderr io.Writer) int {
 	defer stop()
 	results := runner.Run(ctx, hosts, runner.Options{
 		Action:      o.action,
-		Params:      actions.Params{CertURI: o.certURI, CertFile: o.certFile, DryRun: o.dryRun, ResetType: o.resetType, Capture: o.probeDump != ""},
+		Params:      actions.Params{CertURI: o.certURI, CertFile: o.certFile, DryRun: o.dryRun, ResetType: o.resetType, Capture: o.probeDump != "", Database: o.database, Signature: o.signature, SignatureOwner: o.signatureOwner, Confirm: o.confirm},
 		Platform:    o.platform,
 		Method:      o.method,
+		Database:    o.database,
 		Concurrency: o.concurrency,
 		Client: redfish.Options{
 			Timeout: o.timeout, TaskTimeout: o.taskTimeout, NoWait: o.noWait, Retries: o.retries,

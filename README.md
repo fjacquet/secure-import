@@ -46,6 +46,8 @@ Options principales (`sbmgr -h` donne la liste complète) :
 | `-a`, `--action` | `status`, `enable`, `disable`, `set_policy_custom`, `set_policy_standard`, `db_list`, `db_import`, `db_export`, `db_delete`, `reset_keys` |
 | `-a probe`, `--probe-dump` | contrôle en lecture seule de ce que répond chaque BMC ; `--probe-dump f.json` garde les réponses brutes expurgées |
 | `--dry-run` | lit et valide tout, n'écrit rien : le résultat dit ce qui changerait |
+| `--database` | `db` (défaut), `KEK`, `PK` ou `dbx`. PK, KEK et dbx exigent `--confirm` ; PK et KEK aussi le mode `SetupMode` ou `AuditMode` |
+| `--signature`, `--signature-owner` | dbx : ajoute une signature SHA-256 (`db_import --database dbx`) ; format du POST non confirmé |
 | `--cert-file`, `--cert-uri` | fichier de certificat (PEM ou DER, 64 Kio max) ; URI d'un certificat pour `db_export` et `db_delete` |
 | `--reset-type`, `--confirm` | type de `reset_keys` ; confirmation obligatoire de cette action destructive |
 | `--retries N` | nouvelles tentatives sur erreur transitoire (défaut 2) ; jamais d'écriture rejouée |
@@ -112,3 +114,4 @@ make test         # tests contre un faux BMC
   - [0006 — `reset_keys` : action destructive, explicite et confirmée](docs/adr/0006-reset-keys.md)
   - [0007 — `probe` : valider une plateforme par des lectures](docs/adr/0007-action-probe.md)
   - [0008 — cobra pour la ligne de commande](docs/adr/0008-cobra-pour-la-ligne-de-commande.md)
+  - [0009 — autres bases Secure Boot (PK, KEK, dbx)](docs/adr/0009-autres-bases-secure-boot.md)

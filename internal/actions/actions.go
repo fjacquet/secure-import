@@ -18,7 +18,13 @@ import (
 type Params struct {
 	CertURI, CertFile string
 	ResetType         string
-	Capture           bool // probe: keep a redacted copy of the raw responses
+	// Database is the Secure Boot database chosen with --database ("" = db).
+	Database string
+	// Signature is a SHA-256 (hex) to add to dbx; SignatureOwner an optional owner GUID.
+	Signature, SignatureOwner string
+	// Confirm authorises writes the tool treats as dangerous (PK, KEK, dbx, resets).
+	Confirm bool
+	Capture bool // probe: keep a redacted copy of the raw responses
 	// DryRun reads and validates everything but writes nothing: the result
 	// says what would change.
 	DryRun bool
@@ -60,6 +66,14 @@ func runDB(ctx context.Context, p platform.Platform, action string, par Params, 
 		r.Success, r.CertCount = true, len(certs)
 		r.Message = fmt.Sprintf("Found %d DB certificates", len(certs)) + certDetails(certs)
 	case platform.ActionDBImport:
+		if par.Signature != "" {
+			importSignature(ctx, p, par, r)
+			return
+		}
+		if err := guardWrite(ctx, p, par.Database, par.Confirm); err != nil {
+			r.Error = err.Error()
+			return
+		}
 		if par.DryRun {
 			dryImport(ctx, p, par.CertFile, r)
 			return
@@ -76,6 +90,10 @@ func runDB(ctx context.Context, p platform.Platform, action string, par Params, 
 	case platform.ActionDBDelete:
 		if !isCertURI(redfish.SanitizePath(par.CertURI)) {
 			r.Error = "not a certificate URI: " + par.CertURI
+			return
+		}
+		if err := guardWrite(ctx, p, databaseOfURI(par.CertURI), par.Confirm); err != nil {
+			r.Error = err.Error()
 			return
 		}
 		if par.DryRun {
@@ -266,6 +284,10 @@ func dryDelete(ctx context.Context, p platform.Platform, uri string, r *report.R
 
 // resetKeys runs the destructive key reset. The CLI refuses it without --confirm.
 func resetKeys(ctx context.Context, p platform.Platform, par Params, st platform.Status, r *report.Result) {
+	if err := guardWriteIn(par.Database, par.Confirm, st.Mode); err != nil {
+		r.Error = err.Error()
+		return
+	}
 	if par.DryRun {
 		r.Success, r.NewStatus = true, r.CurrentStatus
 		r.ChangeMessage = "DRY RUN: would reset Secure Boot keys (" + par.ResetType + ")"
@@ -279,4 +301,58 @@ func resetKeys(ctx context.Context, p platform.Platform, par Params, st platform
 	r.ChangeMessage = ch.Message
 	r.NewStatus = platform.PendingStatus(r.CurrentStatus, ch.RebootRequired)
 	r.Success = true
+}
+
+// guardedDatabases need --confirm for any write; PK and KEK also need the platform to
+// be in Setup or Audit mode, so a deployed server is never left without its keys by mistake.
+func guardWrite(ctx context.Context, p platform.Platform, database string, confirm bool) error {
+	mode := ""
+	if strings.EqualFold(database, "PK") || strings.EqualFold(database, "KEK") {
+		if st, err := p.Status(ctx); err == nil {
+			mode = st.Mode
+		}
+	}
+	return guardWriteIn(database, confirm, mode)
+}
+
+func guardWriteIn(database string, confirm bool, mode string) error {
+	switch strings.ToLower(database) {
+	case "pk", "kek", "dbx":
+		if !confirm {
+			return fmt.Errorf("writing to the %s database is dangerous and requires --confirm", database)
+		}
+	}
+	switch strings.ToLower(database) {
+	case "pk", "kek":
+		if mode != "SetupMode" && mode != "AuditMode" {
+			return fmt.Errorf("refusing to change the %s database: Secure Boot mode is %q, it must be SetupMode or AuditMode", database, mode)
+		}
+	}
+	return nil
+}
+
+// databaseOfURI names the guarded database a certificate URI lives in ("" otherwise).
+func databaseOfURI(uri string) string {
+	lower := strings.ToLower(uri)
+	for _, db := range []string{"pk", "kek", "dbx"} {
+		if strings.Contains(lower, "/"+db+"/") {
+			return strings.ToUpper(db)
+		}
+	}
+	return ""
+}
+
+// importSignature adds a SHA-256 to dbx (--signature). Always guarded.
+func importSignature(ctx context.Context, p platform.Platform, par Params, r *report.Result) {
+	if err := guardWrite(ctx, p, "dbx", par.Confirm); err != nil {
+		r.Error = err.Error()
+		return
+	}
+	if par.DryRun {
+		r.Success = true
+		r.Message = "DRY RUN: would add signature " + par.Signature + " to dbx"
+		return
+	}
+	ch, err := p.AddSignature(ctx, par.Signature, par.SignatureOwner)
+	finish(r, ch, err)
 }

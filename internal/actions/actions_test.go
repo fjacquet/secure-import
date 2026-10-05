@@ -270,3 +270,75 @@ func TestEnableHonoursAPendingOppositeChange(t *testing.T) {
 		t.Errorf("already pending: r = %+v, calls = %v", r, f.calls)
 	}
 }
+
+// ---- other databases (ADR 0009)
+
+func (f *fake) AddSignature(_ context.Context, sha, owner string) (platform.Change, error) {
+	f.calls = append(f.calls, "signature="+sha+"/"+owner)
+	return f.change, f.err
+}
+
+func TestWritesOnPKAndKEKNeedConfirmAndSetupOrAuditMode(t *testing.T) {
+	ctx := context.Background()
+	cert := filepath.Join(t.TempDir(), "k.pem")
+	for _, db := range []string{"PK", "KEK"} {
+		f := newFake()
+		f.status.Mode = "SetupMode"
+		if r := Run(ctx, f, "ip", platform.ActionDBImport, Params{Database: db, CertFile: cert}); r.Success || !strings.Contains(r.Error, "--confirm") {
+			t.Errorf("%s without confirm: %+v", db, r)
+		}
+		f.status.Mode = "UserMode"
+		if r := Run(ctx, f, "ip", platform.ActionDBImport, Params{Database: db, CertFile: cert, Confirm: true}); r.Success || !strings.Contains(r.Error, "SetupMode or AuditMode") {
+			t.Errorf("%s in UserMode: %+v", db, r)
+		}
+		for _, c := range f.calls {
+			if strings.HasPrefix(c, "import=") {
+				t.Errorf("%s: a refused write reached the driver: %v", db, f.calls)
+			}
+		}
+		f.status.Mode = "AuditMode"
+		if r := Run(ctx, f, "ip", platform.ActionDBImport, Params{Database: db, CertFile: cert, Confirm: true}); !r.Success {
+			t.Errorf("%s in AuditMode: %+v", db, r)
+		}
+	}
+	// db is not guarded
+	f := newFake()
+	f.status.Mode = "UserMode"
+	if r := Run(ctx, f, "ip", platform.ActionDBImport, Params{CertFile: cert}); !r.Success {
+		t.Errorf("db import must stay unguarded: %+v", r)
+	}
+}
+
+func TestDeleteInsidePKOrKEKIsGuardedWhateverTheFlag(t *testing.T) {
+	f := newFake()
+	f.status.Mode = "UserMode"
+	r := Run(context.Background(), f, "ip", platform.ActionDBDelete, Params{CertURI: "/redfish/v1/Systems/1/SecureBoot/SecureBootDatabases/PK/Certificates/1", Confirm: true})
+	if r.Success || !strings.Contains(r.Error, "SetupMode or AuditMode") || slices.Contains(f.calls, "delete=/redfish/v1/Systems/1/SecureBoot/SecureBootDatabases/PK/Certificates/1") {
+		t.Errorf("r = %+v, calls = %v", r, f.calls)
+	}
+}
+
+func TestDBXSignatureImportNeedsConfirm(t *testing.T) {
+	ctx := context.Background()
+	const sha = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	f := newFake()
+	if r := Run(ctx, f, "ip", platform.ActionDBImport, Params{Database: "dbx", Signature: sha}); r.Success || !strings.Contains(r.Error, "--confirm") {
+		t.Errorf("without confirm: %+v", r)
+	}
+	if r := Run(ctx, f, "ip", platform.ActionDBImport, Params{Database: "dbx", Signature: sha, SignatureOwner: "g", Confirm: true}); !r.Success || !slices.Contains(f.calls, "signature="+sha+"/g") {
+		t.Errorf("with confirm: %+v, calls = %v", r, f.calls)
+	}
+	f = newFake()
+	if r := Run(ctx, f, "ip", platform.ActionDBImport, Params{Database: "dbx", Signature: sha, Confirm: true, DryRun: true}); !r.Success || !strings.Contains(r.Message, "DRY RUN") || len(f.calls) != 0 {
+		t.Errorf("dry run: %+v, calls = %v", r, f.calls)
+	}
+}
+
+func TestResetOfPKOrKEKDatabaseIsGuarded(t *testing.T) {
+	f := newFake()
+	f.status.Mode = "UserMode"
+	r := Run(context.Background(), f, "ip", platform.ActionResetKeys, Params{Database: "KEK", ResetType: "DeleteAllKeys", Confirm: true})
+	if r.Success || !strings.Contains(r.Error, "SetupMode or AuditMode") || slices.Contains(f.calls, "reset=DeleteAllKeys") {
+		t.Errorf("r = %+v, calls = %v", r, f.calls)
+	}
+}

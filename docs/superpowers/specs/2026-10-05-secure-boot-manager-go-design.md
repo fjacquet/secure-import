@@ -207,6 +207,20 @@ en erreur `cannot detect platform (use --platform)`.
   `CertificateString` dans la ressource JSON ; une réponse qui ne contient que des
   métadonnées (ressource OEM `DellCertificate`) est une erreur.
 
+### Autres bases Secure Boot (ADR 0009)
+- `--database db|KEK|PK|dbx` (défaut `db`). `db_list` et `db_import` visent la base choisie ;
+  sur Dell, toute base autre que `db` passe par les collections standard (le multipart OEM
+  n'existe que pour `db`).
+- `dbx` : `db_list` compte les membres de `Signatures` ; `db_import --signature <sha256>
+  [--signature-owner GUID]` ajoute une signature (POST `{SignatureString, SignatureType:
+  EFI_CERT_SHA256_GUID, SignatureTypeRegistry: UEFI[, UefiSignatureOwner]}`). Format
+  **non confirmé** par un BMC.
+- Garde-fous : PK, KEK et dbx exigent `--confirm` ; PK et KEK exigent aussi `SetupMode` ou
+  `AuditMode`. S'applique à `db_import`, à `db_delete` d'un membre sous `/PK/`, `/KEK/` ou
+  `/dbx/`, et à `reset_keys --database`. `--dry-run` applique les mêmes refus.
+- `reset_keys --database X` : action `SecureBootDatabase.ResetKeys` de la base, types
+  `ResetAllKeysToDefault` ou `DeleteAllKeys` seulement.
+
 ### Fonctions communes à tous les drivers
 - **Import idempotent** : avant `db_import`, les certificats de la base sont lus et
   comparés par SHA-256 (texte du certificat, sinon champ `Fingerprint` si son algorithme
@@ -285,6 +299,9 @@ sbmgr -i nodes.csv -o out.csv -a <action> [options]
   --method oem|standard  méthode d'import/suppression Dell (défaut : oem sur iDRAC9, standard sur iDRAC10)
   --cert-uri URI         db_export, db_delete
   --cert-file PATH       db_import, db_export (nom suffixé par l'IP de l'hôte)
+  --database NAME        db (défaut), KEK, PK ou dbx (ADR 0009)
+  --signature SHA256     dbx : signature (64 hex) à ajouter avec db_import
+  --signature-owner GUID dbx : propriétaire de la signature (facultatif)
   --reset-type TYPE      reset_keys (ResetAllKeysToDefault, DeleteAllKeys, DeletePK, ResetPK,
                          ResetKEK, ResetDB, ResetDBX)
   --confirm              obligatoire pour reset_keys (sauf avec --dry-run)
@@ -381,3 +398,7 @@ a échoué ou si une ligne du CSV a été ignorée, 2 en cas d'erreur d'usage ou
 7. Statut d'implémentation : le code et ses tests (faux BMC, specs OpenAPI Dell) sont en place ;
    l'ensemble reste non validé sur matériel. Ordre d'essai conseillé : `status`, `db_list`,
    puis une écriture sur un serveur de test.
+8. Autres bases (ADR 0009) : le corps du POST sur `Signatures` (dbx) reprend les noms DMTF et
+   n'est confirmé par aucun BMC ; le comportement réel des BMC pour l'écriture de PK et KEK
+   (souvent réservée à une requête signée en mode User) est à observer ; la liste des
+   bases et leurs actions se lit d'abord avec `-a probe`.

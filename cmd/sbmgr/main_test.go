@@ -171,3 +171,31 @@ func TestVersionSubcommand(t *testing.T) {
 		t.Errorf("code = %d, stdout = %q", code, stdout)
 	}
 }
+
+func TestDatabaseFlagValidationAndCompletion(t *testing.T) {
+	const sha = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"unknown database", []string{"-i", "a", "-o", "b", "-a", "db_list", "--database", "dbr"}, "database must be one of"},
+		{"signature needs dbx", []string{"-i", "a", "-o", "b", "-a", "db_import", "--database", "db", "--signature", sha}, "only applies to db_import with --database dbx"},
+		{"signature length", []string{"-i", "a", "-o", "b", "-a", "db_import", "--database", "dbx", "--signature", "abc"}, "64 hexadecimal"},
+		{"signature xor cert", []string{"-i", "a", "-o", "b", "-a", "db_import", "--database", "dbx", "--signature", sha, "--cert-file", "c"}, "not both"},
+		{"dbx needs a signature", []string{"-i", "a", "-o", "b", "-a", "db_import", "--database", "dbx", "--cert-file", "c"}, "needs --signature"},
+		{"per-database reset types", []string{"-i", "a", "-o", "b", "-a", "reset_keys", "--database", "db", "--reset-type", "DeletePK", "--confirm"}, "must be ResetAllKeysToDefault or DeleteAllKeys"},
+	}
+	for _, tc := range cases {
+		code, _, stderr := exec(t, tc.args...)
+		if code != 2 || !strings.Contains(stderr, tc.want) {
+			t.Errorf("%s: code = %d, stderr = %q, want 2 and %q", tc.name, code, stderr, tc.want)
+		}
+	}
+	_, stdout, _ := exec(t, "__complete", "--database", "")
+	for _, db := range []string{"db", "KEK", "PK", "dbx"} {
+		if !strings.Contains(stdout, db) {
+			t.Errorf("--database completion lacks %s: %q", db, stdout)
+		}
+	}
+}

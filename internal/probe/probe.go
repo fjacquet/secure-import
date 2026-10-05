@@ -201,6 +201,7 @@ func (p *prober) databases(ctx context.Context, sb string) {
 		}
 	}
 	p.add("SecureBoot databases", report.CheckOK, strings.Join(ids, ", "))
+	p.eachDatabase(ctx, members)
 	if dbURI == "" {
 		p.add("db certificates", report.CheckFail, "no database named db")
 		return
@@ -301,3 +302,59 @@ func redact(v any) any {
 // keep lists keys the pattern could catch although they are what validation needs.
 var keep = map[string]bool{"SecureBootEnable": true, "SecureBootCurrentBoot": true,
 	"SecureBootMode": true, "SecureBootDatabases": true, "SecureBootPolicy": true}
+
+// eachDatabase reports, for PK, KEK, db and dbx, which collection the BMC exposes, how
+// many members it holds and what the per-database ResetKeys action allows, so nobody
+// has to guess before writing to a database other than db.
+func (p *prober) eachDatabase(ctx context.Context, members []redfish.Link) {
+	var defaults []string
+	for _, m := range members {
+		id := m.ODataID[strings.LastIndex(m.ODataID, "/")+1:]
+		if strings.HasSuffix(strings.ToLower(id), "default") {
+			defaults = append(defaults, id)
+			continue
+		}
+		switch strings.ToLower(id) {
+		case "pk", "kek", "db", "dbx":
+		default:
+			continue
+		}
+		doc, err := p.fetch(ctx, m.ODataID)
+		if err != nil {
+			p.add("database "+id, report.CheckFail, err.Error())
+			continue
+		}
+		kind := "Certificates"
+		if link(doc, "Signatures") != "" && link(doc, "Certificates") == "" {
+			kind = "Signatures"
+		}
+		detail := kind
+		if coll := link(doc, kind); coll != "" {
+			if list, err := p.c.Members(ctx, coll); err == nil {
+				detail = fmt.Sprintf("%s: %d", kind, len(list))
+			} else {
+				detail = kind + ": " + err.Error()
+			}
+		}
+		actions, _ := doc["Actions"].(map[string]any)
+		if reset, ok := actions["#SecureBootDatabase.ResetKeys"].(map[string]any); ok {
+			var vals []string
+			if allowed, ok := reset["ResetKeysType@Redfish.AllowableValues"].([]any); ok {
+				for _, v := range allowed {
+					if s, ok := v.(string); ok {
+						vals = append(vals, s)
+					}
+				}
+			}
+			detail += "; ResetKeys: " + strings.Join(vals, ", ")
+		} else {
+			detail += "; no ResetKeys action"
+		}
+		p.add("database "+id, report.CheckOK, detail)
+	}
+	if len(defaults) > 0 {
+		p.add("default databases", report.CheckOK, strings.Join(defaults, ", "))
+	} else {
+		p.add("default databases", report.CheckAbsent, "no *Default database is exposed")
+	}
+}
