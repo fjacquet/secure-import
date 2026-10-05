@@ -48,13 +48,14 @@ func (d *Driver) Supports(action string) bool {
 type biosDoc struct {
 	Attributes struct {
 		SecureBootPolicy string `json:"SecureBootPolicy"`
+		SecureBoot       string `json:"SecureBoot"`
 	} `json:"Attributes"`
 	Settings struct {
 		SettingsObject redfish.Link `json:"SettingsObject"`
 	} `json:"@Redfish.Settings"`
 }
 
-const policyQuery = "?$select=Attributes/SecureBootPolicy"
+const policyQuery = "?$select=Attributes/SecureBootPolicy,Attributes/SecureBoot"
 
 // bios reads the applied SecureBootPolicy and returns the Bios/Settings URI
 // (from @Redfish.Settings, else <bios>/Settings as a last resort).
@@ -103,6 +104,14 @@ func (d *Driver) Status(ctx context.Context) (platform.Status, error) {
 	var pending biosDoc
 	if err := d.c.GetJSON(ctx, settings+policyQuery, &pending); err == nil {
 		st.PendingPolicy = pending.Attributes.SecureBootPolicy
+		switch pending.Attributes.SecureBoot {
+		case "Enabled":
+			v := true
+			st.PendingEnabled = &v
+		case "Disabled":
+			v := false
+			st.PendingEnabled = &v
+		}
 	}
 	return st, nil
 }

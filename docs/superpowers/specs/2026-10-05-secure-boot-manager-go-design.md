@@ -198,8 +198,8 @@ en erreur `cannot detect platform (use --platform)`.
   Si le fichier est en DER, conversion en PEM côté client.
 - `db_delete` : `DELETE` de `.../Certificates/{Id}`.
 - `enable`/`disable` : `PATCH SecureBoot` ; **à valider** si un reboot est requis.
-- Limites connues à signaler dans le résultat : PK = 1 certificat, autres bases =
-  16 certificats, 3 KiB par certificat (contrôle de taille avant envoi).
+- Limites : 3 KiB par certificat (contrôle de taille avant envoi) ; une base `db` qui
+  contient déjà 16 certificats refuse l'import avec un message clair, sans POST.
 - `set_policy_*` : non supporté (pas de politique Custom/Standard chez HPE).
 
 ### lenovo (XCC, d'après le XCC REST API Guide)
@@ -227,18 +227,22 @@ en erreur `cannot detect platform (use --platform)`.
 - `status` : `GET /redfish/v1/Systems/1/SecureBoot` (`SecureBootEnable`,
   `SecureBootCurrentBoot`, `SecureBootMode`). Pas de `SecureBootPolicy` : `N/A`.
 - `enable`/`disable` : `PATCH SecureBoot {"SecureBootEnable": bool}`, réponse 200. Le
-  changement est en attente jusqu'au reboot ; il se lit dans `Bios/SD` (« BIOS
-  Configuration Pending Settings »). Résultat : `Enabled|Disabled (Pending - Reboot Required)`.
+  changement est en attente jusqu'au reboot. Résultat : `Enabled|Disabled (Pending - Reboot
+  Required)`, toujours : `Bios/SD` (« BIOS Configuration Pending Settings ») n'est pas lu,
+  car ses attributs pour Secure Boot ne sont pas documentés et une lecture ne pourrait
+  produire qu'un faux « pas de reboot nécessaire ».
 - `db_list` : `GET SecureBootDatabases/db/Certificates` (`db`, `dbt`, `dbr`, `KEK`, `PK`
   portent des certificats ; `dbx` porte des signatures, pas des certificats).
 - `db_import` : `POST SecureBootDatabases/db/Certificates` JSON
-  `{"CertificateString":"<PEM>","CertificateType":"PEM"}` ; succès = HTTP 201. Le guide
+  `{"CertificateString":"<PEM>","CertificateType":"PEM"}` ; succès = HTTP 201 (un autre
+  2xx reste un succès, avec une note « HTTP n, le guide documente 201 »). Le guide
   n'illustre l'import que pour `dbt` ; `db` est supposé identique. Le fichier DER est
   converti en PEM côté client.
 - `db_delete` : `DELETE` de l'URI du certificat (le guide annonce GET/DELETE).
 - Les URI SecureBoot et BIOS exigent la licence `SFT-DCMS-SINGLE` ; prérequis
-  matériel : X13/H13 ou plus récent pour `SecureBootDatabases`. Un `403`/`404` sans
-  licence est rapporté tel quel avec le rappel « licence DCMS requise ? ».
+  matériel : X13/H13 ou plus récent pour `SecureBootDatabases`. Un `403`/`404` sur
+  `SecureBoot` est rapporté avec le rappel de la licence `SFT-DCMS-SINGLE` et du prérequis
+  de génération.
 - `set_policy_*` : non supporté.
 - `ResetKeys` (`ResetAllKeysToDefault`, `DeleteAllKeys`, `DeletePK`) existe, non exposé en v1.
 

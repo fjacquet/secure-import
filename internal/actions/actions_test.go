@@ -252,3 +252,21 @@ func TestResetKeysActionAndDryRun(t *testing.T) {
 		t.Errorf("dry run: r = %+v, calls = %v", r, f.calls)
 	}
 }
+
+func TestEnableHonoursAPendingOppositeChange(t *testing.T) {
+	ctx := context.Background()
+	yes, no := true, false
+	// Enabled now, a disable is pending: "enable" must cancel it, not report "already enabled".
+	f := newFake()
+	f.status.Enabled, f.status.PendingEnabled = true, &no
+	if r := Run(ctx, f, "ip", platform.ActionEnable, Params{}); !r.Success || !slices.Contains(f.calls, "enable=true") {
+		t.Errorf("cancel pending: r = %+v, calls = %v", r, f.calls)
+	}
+	// Disabled now, enable already pending: nothing to send.
+	f = newFake()
+	f.status.PendingEnabled = &yes
+	r := Run(ctx, f, "ip", platform.ActionEnable, Params{})
+	if !r.Success || slices.Contains(f.calls, "enable=true") || !strings.Contains(r.ChangeMessage, "already pending") {
+		t.Errorf("already pending: r = %+v, calls = %v", r, f.calls)
+	}
+}

@@ -168,3 +168,12 @@ func TestSetSecureBootEmptyResponseStillNeedsReboot(t *testing.T) {
 		t.Errorf("ch = %+v, err = %v: SecureBootEnable only takes effect on the next boot", ch, err)
 	}
 }
+
+func TestStatusReportsPendingSecureBootEnable(t *testing.T) {
+	s, d := newFake9(t, "")
+	s.JSON("GET", sys+"/Bios/Settings", 200, map[string]any{"Attributes": map[string]any{"SecureBoot": "Enabled"}})
+	st, err := d.Status(context.Background())
+	if err != nil || st.PendingEnabled == nil || !*st.PendingEnabled {
+		t.Errorf("st = %+v, err = %v", st, err)
+	}
+}
