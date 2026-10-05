@@ -77,6 +77,8 @@ type Platform interface {
 	DBExport(ctx context.Context, uri, file string) (Change, error)
 	DBDelete(ctx context.Context, uri string) (Change, error)
 	ResetKeys(ctx context.Context, resetType string) (Change, error)
+	// AddSignature adds a SHA-256 signature (hex) to the dbx revocation list.
+	AddSignature(ctx context.Context, sha256hex, owner string) (Change, error)
 }
 
 // Unsupported is embedded by drivers; it answers ErrUnsupported for everything
@@ -109,5 +111,9 @@ func PendingStatus(target string, reboot bool) string {
 }
 
 func (Unsupported) ResetKeys(context.Context, string) (Change, error) {
+	return Change{}, ErrUnsupported
+}
+
+func (Unsupported) AddSignature(context.Context, string, string) (Change, error) {
 	return Change{}, ErrUnsupported
 }

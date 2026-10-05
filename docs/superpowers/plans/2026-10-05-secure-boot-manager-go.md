@@ -4747,23 +4747,23 @@ Then run it against a **test** BMC, read-only first: `bin/sbmgr-darwin-arm64 -i 
 
 - [ ] **Step 5: Update the README status and add build instructions**
 
-In `README.md`, replace the badge line `![Statut](https://img.shields.io/badge/statut-design-orange)` with `![Statut](https://img.shields.io/badge/statut-alpha-orange)`. Replace the blockquote under the intro (`> **Statut : design uniquement.** ...` and its second line) with:
+In `README.md`, replace the badge line `![Status](https://img.shields.io/badge/status-design-orange)` with `![Status](https://img.shields.io/badge/status-alpha-orange)`. Replace the blockquote under the intro (`> **Status: design only.** ...` and its second line) with:
 
 ```
-> **Statut : alpha.** Le code est écrit et testé contre un faux BMC ; seul le
-> comportement iDRAC9 repose sur un script éprouvé en production. Aucune plateforme n'a
-> été validée sur matériel avec cet outil : commencez par `-a status` puis `-a db_list`.
+> **Status: alpha.** The code is written and tested against a fake BMC; only the
+> iDRAC9 behavior relies on a script proven in production. No platform has been
+> validated on hardware with this tool: start with `-a status`, then `-a db_list`.
 ```
 
 Append this section before `## Documentation`:
 
 ```
-## Compilation
+## Building
 
 ```sh
-make build        # binaire local dans bin/sbmgr
-make build-all    # linux amd64/arm64, windows amd64, macOS arm64/amd64 (sans CGO, sans runtime)
-make test         # tests contre un faux BMC
+make build        # local binary in bin/sbmgr
+make build-all    # linux amd64/arm64, windows amd64, macOS arm64/amd64 (no CGO, no runtime)
+make test         # tests against a fake BMC
 ```
 ```
 
@@ -4774,9 +4774,9 @@ make test         # tests contre un faux BMC
 In `docs/superpowers/specs/2026-10-05-secure-boot-manager-go-design.md`, in section 11, add as the last item:
 
 ```
-7. Statut d'implémentation : le code et ses tests (faux BMC, specs OpenAPI Dell) sont en place ;
-   l'ensemble reste non validé sur matériel. Ordre d'essai conseillé : `status`, `db_list`,
-   puis une écriture sur un serveur de test.
+7. Implementation status: the code and its tests (fake BMC, Dell OpenAPI specs) are in place;
+   everything remains not validated on hardware. Recommended order of trials: `status`,
+   `db_list`, then a write on a test server.
 ```
 
 - [ ] **Step 7: Commit**

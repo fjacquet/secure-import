@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -124,6 +125,11 @@ func (h *Helper) SetEnable(ctx context.Context, enable bool) (*redfish.Response,
 
 // DBPath returns the Certificates collection URI of database id ("db", "KEK"...).
 func (h *Helper) DBPath(ctx context.Context, id string) (string, error) {
+	return h.collection(ctx, id, "Certificates")
+}
+
+// collection returns the URI of a database's "Certificates" or "Signatures" collection.
+func (h *Helper) collection(ctx context.Context, id, kind string) (string, error) {
 	doc, err := h.Get(ctx)
 	if err != nil {
 		return "", err
@@ -140,22 +146,36 @@ func (h *Helper) DBPath(ctx context.Context, id string) (string, error) {
 		if !strings.EqualFold(path.Base(m.ODataID), id) {
 			continue
 		}
-		var d struct {
-			Certificates redfish.Link `json:"Certificates"`
-		}
+		var d map[string]json.RawMessage
 		if err := h.C.GetJSON(ctx, m.ODataID, &d); err != nil {
 			return "", err
 		}
-		if d.Certificates.ODataID != "" {
-			return d.Certificates.ODataID, nil
+		var l redfish.Link
+		if raw, ok := d[kind]; ok && json.Unmarshal(raw, &l) == nil && l.ODataID != "" {
+			return l.ODataID, nil
 		}
-		return m.ODataID + "/Certificates", nil
+		return m.ODataID + "/" + kind, nil
 	}
 	return "", fmt.Errorf("secure boot database %q not found", id)
 }
 
 // DBCerts lists the certificates of database id.
 func (h *Helper) DBCerts(ctx context.Context, id string) ([]platform.Cert, error) {
+	if strings.EqualFold(id, "dbx") { // dbx holds signatures (hashes), not certificates
+		p, err := h.collection(ctx, id, "Signatures")
+		if err != nil {
+			return nil, err
+		}
+		members, err := h.C.Members(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]platform.Cert, len(members))
+		for i, m := range members {
+			out[i] = platform.Cert{URI: m.ODataID}
+		}
+		return out, nil
+	}
 	p, err := h.DBPath(ctx, id)
 	if err != nil {
 		return nil, err
@@ -344,4 +364,59 @@ func (h *Helper) ResetKeys(ctx context.Context, resetType string) (*redfish.Resp
 		return nil, fmt.Errorf("reset type %q is not allowed by this BMC (allowed: %s)", resetType, strings.Join(act.Allowed, ", "))
 	}
 	return h.C.SendJSON(ctx, http.MethodPost, act.Target, map[string]string{"ResetKeysType": resetType})
+}
+
+// ImportSignature adds a SHA-256 signature to database id (dbx). The body uses the
+// DMTF Signature property names; no BMC has confirmed this format (ADR 0009).
+func (h *Helper) ImportSignature(ctx context.Context, id, sha256hex, owner string) (*redfish.Response, error) {
+	p, err := h.collection(ctx, id, "Signatures")
+	if err != nil {
+		return nil, err
+	}
+	body := map[string]string{
+		"SignatureString": sha256hex, "SignatureType": "EFI_CERT_SHA256_GUID", "SignatureTypeRegistry": "UEFI"}
+	if owner != "" {
+		body["UefiSignatureOwner"] = owner
+	}
+	return h.C.SendJSON(ctx, http.MethodPost, p, body)
+}
+
+// DBResetKeys runs the ResetKeys action of one database (only ResetAllKeysToDefault and
+// DeleteAllKeys exist at that level), validated against the BMC's allowable values.
+func (h *Helper) DBResetKeys(ctx context.Context, id, resetType string) (*redfish.Response, error) {
+	doc, err := h.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	dbs := doc.SecureBootDatabases.ODataID
+	if dbs == "" {
+		return nil, errors.New("SecureBootDatabases not exposed by this BMC")
+	}
+	members, err := h.C.Members(ctx, dbs)
+	if err != nil {
+		return nil, fmt.Errorf("secure boot databases: %w", err)
+	}
+	for _, m := range members {
+		if !strings.EqualFold(path.Base(m.ODataID), id) {
+			continue
+		}
+		var d struct {
+			Actions map[string]struct {
+				Target  string   `json:"target"`
+				Allowed []string `json:"ResetKeysType@Redfish.AllowableValues"`
+			} `json:"Actions"`
+		}
+		if err := h.C.GetJSON(ctx, m.ODataID, &d); err != nil {
+			return nil, err
+		}
+		act, ok := d.Actions["#SecureBootDatabase.ResetKeys"]
+		if !ok || act.Target == "" {
+			return nil, fmt.Errorf("resetting the %s database is not supported by this BMC (no ResetKeys action)", id)
+		}
+		if len(act.Allowed) > 0 && !slices.Contains(act.Allowed, resetType) {
+			return nil, fmt.Errorf("reset type %q is not allowed for the %s database (allowed: %s)", resetType, id, strings.Join(act.Allowed, ", "))
+		}
+		return h.C.SendJSON(ctx, http.MethodPost, act.Target, map[string]string{"ResetKeysType": resetType})
+	}
+	return nil, fmt.Errorf("secure boot database %q not found", id)
 }

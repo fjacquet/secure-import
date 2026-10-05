@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"io"
 	"math/big"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"sbmgr/internal/platform"
 	"sbmgr/internal/testbmc"
 )
 
@@ -243,5 +245,36 @@ func TestDBExportLeavesNoTemporaryFile(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(out); string(b) == "old" {
 		t.Error("the file was not replaced")
+	}
+}
+
+// ---- other databases (ADR 0009)
+
+func TestOtherDatabasesUseTheStandardPathEvenWithOEMMethod(t *testing.T) {
+	s, d := newFake9(t, "oem")
+	const dbs9 = sys + "/SecureBoot/SecureBootDatabases"
+	s.JSON("GET", sys+"/SecureBoot", 200, map[string]any{"SecureBootDatabases": testbmc.Link(dbs9), "SecureBootEnable": false,
+		"Oem": map[string]any{"Dell": map[string]any{"Certificates": testbmc.Link(sys + "/SecureBoot/Oem/Dell/Certificates")}}})
+	s.JSON("GET", dbs9, 200, map[string]any{"Members": []any{testbmc.Link(dbs9 + "/KEK")}})
+	s.JSON("GET", dbs9+"/KEK", 200, map[string]any{"Certificates": testbmc.Link(dbs9 + "/KEK/Certificates")})
+	s.JSON("GET", dbs9+"/KEK/Certificates", 200, map[string]any{"Members": []any{testbmc.Link(dbs9 + "/KEK/Certificates/1")}})
+	s.JSON("POST", dbs9+"/KEK/Certificates", 201, map[string]any{})
+	d.WithDatabase("KEK")
+	certs, err := d.DBList(context.Background())
+	if err != nil || len(certs) != 1 {
+		t.Fatalf("certs = %+v, err = %v", certs, err)
+	}
+	if _, err := d.DBImport(context.Background(), writeFile(t, "k.der", realCert(t))); err != nil {
+		t.Fatal(err)
+	}
+	if s.Count("POST", dbs9+"/KEK/Certificates") != 1 || s.Count("POST", store+"/") != 0 {
+		t.Error("the OEM multipart store only exists for db")
+	}
+}
+
+func TestSignatureAndResetAreDelegatedToTheStandardDriver(t *testing.T) {
+	_, d := newFake9(t, "")
+	if _, err := d.AddSignature(context.Background(), "zz", ""); err == nil || errors.Is(err, platform.ErrUnsupported) {
+		t.Errorf("AddSignature must reach the standard driver (and reject a bad hash), err = %v", err)
 	}
 }

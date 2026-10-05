@@ -1,35 +1,35 @@
-# 0006 — `reset_keys` : action destructive, explicite et confirmée
+# 0006 — `reset_keys`: a destructive action, explicit and confirmed
 
-- Statut : accepté
-- Date : 2026-10-05
+- Status: accepted
+- Date: 2026-10-05
 
-## Contexte
+## Context
 
-La recherche (sushy, gofish, guide Lenovo XCC, OpenAPI Dell) montre une action standard
-`#SecureBoot.ResetKeys` (`POST SecureBoot/Actions/SecureBoot.ResetKeys`, corps
-`{"ResetKeysType": ...}`). Les valeurs courantes sont `ResetAllKeysToDefault`,
-`DeleteAllKeys` et `DeletePK` ; la liste permise est annoncée par le BMC dans
-`ResetKeysType@Redfish.AllowableValues`. `DeleteAllKeys` et `DeletePK` mettent le système
-en « Setup Mode » : le Secure Boot cesse de protéger le serveur. C'est pourtant la seule
-sortie de secours quand un `db` a été mal rempli. Ironic expose ces opérations avec une
-priorité nulle : elles ne s'exécutent que sur demande explicite de l'opérateur.
+Research (sushy, gofish, the Lenovo XCC guide, the Dell OpenAPI) shows a standard action
+`#SecureBoot.ResetKeys` (`POST SecureBoot/Actions/SecureBoot.ResetKeys`, body
+`{"ResetKeysType": ...}`). The common values are `ResetAllKeysToDefault`,
+`DeleteAllKeys` and `DeletePK`; the BMC advertises the permitted list in
+`ResetKeysType@Redfish.AllowableValues`. `DeleteAllKeys` and `DeletePK` put the system
+in "Setup Mode": Secure Boot stops protecting the server. Yet this is the only escape
+hatch when a `db` has been populated incorrectly. Ironic exposes these operations with a
+priority of zero: they run only on an explicit request from the operator.
 
-## Décision
+## Decision
 
-- Nouvelle action `reset_keys`, jamais implicite.
-- `--reset-type` obligatoire, limité à `ResetAllKeysToDefault`, `DeleteAllKeys`, `DeletePK`
-  (valeurs DMTF, identiques dans l'OpenAPI iDRAC10 1.30) et `ResetPK`, `ResetKEK`, `ResetDB`,
-  `ResetDBX` (documentées par l'OpenAPI iDRAC9 7.00 ; `ResetDB` ne touche que `db`), puis
-  validé contre `AllowableValues` du BMC quand il en annonce. Une réponse 202 est suivie
-  jusqu'à la fin de la tâche ; un échec ou une tâche non vérifiée est une erreur.
-- `--confirm` obligatoire : sans lui, l'outil refuse. `--dry-run` montre ce qui serait fait.
-- L'action est cherchée dans `Actions` de la ressource `SecureBoot` ; son absence est une
-  erreur « non pris en charge », pas une URI devinée.
-- Succès lu dans `ExtendedInfo` (ADR 0004), comme pour toute écriture ; l'outil ne
-  redémarre pas.
+- New action `reset_keys`, never implicit.
+- `--reset-type` is mandatory, limited to `ResetAllKeysToDefault`, `DeleteAllKeys`, `DeletePK`
+  (DMTF values, identical in the iDRAC10 1.30 OpenAPI) and `ResetPK`, `ResetKEK`, `ResetDB`,
+  `ResetDBX` (documented by the iDRAC9 7.00 OpenAPI; `ResetDB` only touches `db`), then
+  validated against the BMC's `AllowableValues` when it advertises any. A 202 response is
+  followed until the task completes; a failure or an unverified task is an error.
+- `--confirm` is mandatory: without it, the tool refuses. `--dry-run` shows what would be done.
+- The action is looked up in `Actions` of the `SecureBoot` resource; its absence is an
+  "unsupported" error, not a guessed URI.
+- Success is read from `ExtendedInfo` (ADR 0004), as for any write; the tool does not
+  reboot.
 
-## Conséquences
+## Consequences
 
-- Un opérateur peut récupérer un `db` corrompu sans passer par l'interface du BMC.
-- Le risque (Setup Mode) est écrit dans l'aide de la commande et dans le README.
-- Comportement non validé sur matériel, comme le reste hors iDRAC9.
+- An operator can recover a corrupted `db` without going through the BMC interface.
+- The risk (Setup Mode) is written in the command help and in the README.
+- Behavior not validated on hardware, like everything outside iDRAC9.

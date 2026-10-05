@@ -115,3 +115,32 @@ func keys(m map[string]json.RawMessage) []string {
 	}
 	return out
 }
+
+func TestProbeReportsEachDatabase(t *testing.T) {
+	s := ilo(t)
+	s.JSON("GET", dbs, 200, map[string]any{"Members": []any{
+		testbmc.Link(dbs + "/PK"), testbmc.Link(dbs + "/KEK"), testbmc.Link(dbs + "/db"), testbmc.Link(dbs + "/dbx"), testbmc.Link(dbs + "/dbxDefault")}})
+	s.JSON("GET", dbs+"/PK", 200, map[string]any{"Certificates": testbmc.Link(dbs + "/PK/Certificates")})
+	s.JSON("GET", dbs+"/PK/Certificates", 200, map[string]any{"Members": []any{testbmc.Link(dbs + "/PK/Certificates/1")}})
+	s.JSON("GET", dbs+"/KEK", 200, map[string]any{"Certificates": testbmc.Link(dbs + "/KEK/Certificates"),
+		"Actions": map[string]any{"#SecureBootDatabase.ResetKeys": map[string]any{"target": "/x",
+			"ResetKeysType@Redfish.AllowableValues": []string{"ResetAllKeysToDefault", "DeleteAllKeys"}}}})
+	s.JSON("GET", dbs+"/KEK/Certificates", 200, map[string]any{"Members": []any{}})
+	s.JSON("GET", dbs+"/dbx", 200, map[string]any{"Signatures": testbmc.Link(dbs + "/dbx/Signatures")})
+	s.JSON("GET", dbs+"/dbx/Signatures", 200, map[string]any{"Members": []any{testbmc.Link(dbs + "/dbx/Signatures/1"), testbmc.Link(dbs + "/dbx/Signatures/2")}})
+	rep := Run(context.Background(), client(t, s), "auto", "", false)
+	want := map[string]string{
+		"database PK": "Certificates: 1", "database KEK": "ResetAllKeysToDefault, DeleteAllKeys",
+		"database dbx": "Signatures: 2", "default databases": "dbxDefault",
+	}
+	for name, frag := range want {
+		if c, ok := find(rep.Checks, name); !ok || c.Status != report.CheckOK || !strings.Contains(c.Detail, frag) {
+			t.Errorf("%s = %+v (found %v), want %q", name, c, ok, frag)
+		}
+	}
+	for _, r := range s.Requests() {
+		if r.Method != "GET" {
+			t.Errorf("probe sent %s %s", r.Method, r.Path)
+		}
+	}
+}

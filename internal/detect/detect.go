@@ -71,3 +71,19 @@ func identify(ctx context.Context, c *redfish.Client) (string, error) {
 	}
 	return "", fmt.Errorf("cannot detect platform: unknown vendor %q (use --platform)", root.Vendor)
 }
+
+// Bind makes p work on one Secure Boot database ("db", "KEK", "PK", "dbx") and
+// reports whether the driver supports that choice.
+func Bind(p platform.Platform, database string) bool {
+	switch d := p.(type) {
+	case *dell.Driver:
+		d.WithDatabase(database)
+	case *lenovo.Driver:
+		d.WithDatabase(database)
+	case *stdsb.Driver:
+		d.WithDatabase(database)
+	default:
+		return false
+	}
+	return true
+}

@@ -23,6 +23,8 @@ type Driver struct {
 	method string
 	h      stdsb.Helper
 	std    *stdsb.Driver
+	// database is the Secure Boot database chosen with --database ("" means db).
+	database string
 }
 
 var _ platform.Platform = (*Driver)(nil)
@@ -204,7 +206,23 @@ func jobID(loc string) string {
 	return loc[strings.LastIndex(loc, "/")+1:]
 }
 
-// ResetKeys delegates to the standard SecureBoot.ResetKeys action.
+// ResetKeys delegates to the standard ResetKeys action (of one database when chosen).
 func (d *Driver) ResetKeys(ctx context.Context, resetType string) (platform.Change, error) {
 	return d.std.ResetKeys(ctx, resetType)
+}
+
+// WithDatabase binds the driver to one Secure Boot database. The Dell OEM store only
+// holds db, so every other database goes through the standard collections.
+func (d *Driver) WithDatabase(id string) *Driver {
+	d.database = id
+	d.std.WithDatabase(id)
+	return d
+}
+
+// standardOnly reports whether the chosen database has no OEM store.
+func (d *Driver) standardOnly() bool { return d.database != "" && !strings.EqualFold(d.database, "db") }
+
+// AddSignature adds a SHA-256 signature to dbx through the standard collection.
+func (d *Driver) AddSignature(ctx context.Context, sha256hex, owner string) (platform.Change, error) {
+	return d.std.AddSignature(ctx, sha256hex, owner)
 }

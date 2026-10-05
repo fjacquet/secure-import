@@ -21,6 +21,7 @@ type Options struct {
 	Params      actions.Params
 	Platform    string // "auto" or a forced platform name
 	Method      string // Dell import method: "", "oem" or "standard"
+	Database    string // Secure Boot database ("" = db, or KEK, PK, dbx)
 	Concurrency int    // default 20
 	Client      redfish.Options
 }
@@ -91,6 +92,10 @@ func one(ctx context.Context, h inventory.Host, opt Options) (res report.Result)
 	p, err := detect.New(ctx, c, opt.Platform, opt.Method)
 	if err != nil {
 		res.Error = err.Error()
+		return res
+	}
+	if opt.Database != "" && !detect.Bind(p, opt.Database) {
+		res.Error = "this platform does not support --database"
 		return res
 	}
 	slog.Debug("platform detected", "ip", h.IP, "platform", p.Name())
