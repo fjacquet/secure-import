@@ -79,7 +79,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&o.platform, "platform", "auto", "auto, idrac9, idrac10, ilo, lenovo or supermicro (all but idrac9 are not validated on hardware)")
 	fs.StringVar(&o.method, "method", "", "Dell certificate import method: oem or standard (default oem on iDRAC9, standard on iDRAC10)")
 	fs.StringVar(&o.certURI, "cert-uri", "", "certificate URI for db_export and db_delete")
-	fs.StringVar(&o.certFile, "cert-file", "", "certificate file for db_import (PEM or DER) and db_export")
+	fs.StringVar(&o.certFile, "cert-file", "", "certificate file for db_import (PEM or DER, max 64 KiB) and db_export (host IP added to the name)")
 	fs.IntVar(&o.concurrency, "concurrency", 20, "hosts processed in parallel")
 	fs.DurationVar(&o.timeout, "timeout", 30*time.Second, "per-request timeout")
 	fs.DurationVar(&o.taskTimeout, "task-timeout", 120*time.Second, "how long to follow an asynchronous task")
