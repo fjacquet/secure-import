@@ -1,26 +1,26 @@
-# Politique de sécurité
+# Security policy
 
-## Signaler une vulnérabilité
+## Reporting a vulnerability
 
-Ne publiez pas de faille dans une issue. Utilisez le signalement privé de GitHub :
-**Security → Report a vulnerability** sur ce dépôt. Indiquez la version (`sbmgr --version`),
-la plateforme concernée et, si possible, comment reproduire le problème sans mot de passe réel.
+Do not publish a vulnerability in an issue. Use GitHub's private reporting:
+**Security → Report a vulnerability** on this repository. Include the version (`sbmgr --version`),
+the affected platform and, if possible, how to reproduce the problem without a real password.
 
-## Versions suivies
+## Supported versions
 
-Seule la dernière version publiée est suivie. Le projet est en **alpha**.
+Only the latest published version is supported. The project is in **alpha**.
 
-## À savoir avant de l'utiliser
+## What to know before using it
 
-- **Rien n'a été validé sur matériel** avec cet outil. Essayez `-a status` puis `-a db_list`
-  sur un serveur de test avant toute écriture, et `--dry-run` avant un import, une suppression
-  ou un `reset_keys`.
-- **La vérification TLS est désactivée par défaut** (les BMC ont presque toujours un certificat
-  auto-signé). Sur un réseau de gestion non maîtrisé, une personne en position d'interception
-  peut se faire passer pour un BMC et capter les identifiants. Utilisez `--ca-file` ou
-  `--verify-tls`, et des comptes dédiés à Secure Boot.
-- Le CSV d'entrée contient des mots de passe en clair : permissions `0600`, jamais versionné.
-- `reset_keys` avec `DeleteAllKeys` ou `DeletePK` met le serveur en Setup Mode : le Secure
-  Boot cesse de le protéger. L'outil exige `--confirm`.
-- L'outil ne redémarre jamais un serveur : les changements restent en attente jusqu'au
-  prochain démarrage.
+- **Nothing has been validated on hardware** with this tool. Try `-a status` then `-a db_list`
+  on a test server before any write, and `--dry-run` before an import, a deletion
+  or a `reset_keys`.
+- **TLS verification is disabled by default** (BMCs almost always have a self-signed
+  certificate). On an uncontrolled management network, someone in an interception position
+  can impersonate a BMC and capture the credentials. Use `--ca-file` or
+  `--verify-tls`, and accounts dedicated to Secure Boot.
+- The input CSV contains passwords in plaintext: `0600` permissions, never committed.
+- `reset_keys` with `DeleteAllKeys` or `DeletePK` puts the server in Setup Mode: Secure
+  Boot no longer protects it. The tool requires `--confirm`.
+- The tool never reboots a server: changes stay pending until the
+  next boot.
