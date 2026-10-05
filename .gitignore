@@ -8,3 +8,4 @@ docs/*.pdf
 *.csv
 !examples/*.example.csv
 .superpowers/
+bin/
