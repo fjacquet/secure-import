@@ -61,6 +61,8 @@ func TestRealILOProbeFindsEveryDatabaseAndTheResetAction(t *testing.T) {
 	}
 	for name, frag := range map[string]string{
 		"SecureBoot databases": "PK", "db certificates": "8 certificates", "ResetKeys action": "allowed",
+		"database PK": "Certificates: 1", "database KEK": "Certificates: 3", "database db": "Certificates: 8",
+		"default databases": "PKDefault",
 	} {
 		if c, ok := find(rep.Checks, name); !ok || c.Status != report.CheckOK || !strings.Contains(c.Detail, frag) {
 			t.Errorf("%s = %+v (found %v), want %q", name, c, ok, frag)
