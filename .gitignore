@@ -9,3 +9,4 @@ docs/*.pdf
 !examples/*.example.csv
 .superpowers/
 bin/
+dist/

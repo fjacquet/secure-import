@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+project_name: sbmgr
+
+builds:
+  - id: sbmgr
+    main: ./cmd/sbmgr
+    binary: sbmgr
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, windows, darwin]
+    goarch: [amd64, arm64]
+    ignore:
+      - {goos: windows, goarch: arm64} # not built so far
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    mod_timestamp: "{{ .CommitTimestamp }}" # reproducible: same commit, same bytes
+
+archives:
+  - id: sbmgr
+    formats: [tar.gz]
+    format_overrides:
+      - {goos: windows, formats: [zip]}
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files: [LICENSE, README.md]
+
+checksum:
+  name_template: checksums.txt
+
+# SBOM of every archive (needs syft on the runner).
+sboms:
+  - id: archive
+    artifacts: archive
+
+# Keyless cosign signature of the checksum file: it covers every archive. Verify with
+#   cosign verify-blob --bundle checksums.txt.sigstore.json \
+#     --certificate-identity-regexp 'https://github.com/fjacquet/secure-import/' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args: ["sign-blob", "--bundle=${signature}", "${artifact}", "--yes"]
+    artifacts: checksum
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^Merge pull request"
+      - "^Merge branch"
+
+release:
+  prerelease: auto # v0.x and any -suffix are pre-releases

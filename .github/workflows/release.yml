@@ -5,28 +5,32 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: write # publish the release
+  id-token: write # keyless cosign signature and build attestation
+  attestations: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the changelog needs the history
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - name: Test
         run: go test -race -count=1 ./...
-      - name: Build every target
-        run: make build-all VERSION="$GITHUB_REF_NAME"
-      - name: Checksums
-        working-directory: bin
-        run: sha256sum sbmgr-* > SHA256SUMS
-      - name: Publish release
+      - name: Known vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - uses: sigstore/cosign-installer@v4.1.2
+      - uses: anchore/sbom-action/download-syft@v0.24.3
+      - uses: goreleaser/goreleaser-action@v7.2.3
+        with:
+          args: release --clean
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          flags=""
-          case "$GITHUB_REF_NAME" in *-*|v0.*) flags="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" bin/sbmgr-* bin/SHA256SUMS \
-            --title "$GITHUB_REF_NAME" --generate-notes $flags
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Attest the build provenance
+        uses: actions/attest@v4.2.2
+        with:
+          subject-checksums: ./dist/checksums.txt

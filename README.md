@@ -89,6 +89,20 @@ gestion non maîtrisé, une personne en position d'interception pourrait se fair
 pour un BMC et capter les identifiants. Utilisez `--ca-file ca.pem` (ou `--verify-tls`
 avec des certificats valides) et des comptes dédiés à Secure Boot.
 
+## Vérifier une release
+
+Chaque release publie les archives par système, `checksums.txt`, la signature de ce fichier
+(`checksums.txt.sigstore.json`, signature « keyless » cosign liée au workflow GitHub), un SBOM
+par archive et une attestation de provenance.
+
+```sh
+sha256sum -c checksums.txt --ignore-missing
+cosign verify-blob --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp 'https://github.com/fjacquet/secure-import/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
+gh attestation verify sbmgr_<version>_linux_amd64.tar.gz --owner fjacquet
+```
+
 ## Compilation
 
 ```sh
@@ -115,3 +129,4 @@ make test         # tests contre un faux BMC
   - [0007 — `probe` : valider une plateforme par des lectures](docs/adr/0007-action-probe.md)
   - [0008 — cobra pour la ligne de commande](docs/adr/0008-cobra-pour-la-ligne-de-commande.md)
   - [0009 — autres bases Secure Boot (PK, KEK, dbx)](docs/adr/0009-autres-bases-secure-boot.md)
+  - [0010 — GoReleaser, release signée, SBOM et provenance](docs/adr/0010-goreleaser-release-signee.md)
