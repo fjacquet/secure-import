@@ -318,3 +318,6 @@ a échoué, 2 en cas d'erreur d'usage.
    limites par base, besoin de licence DCMS et génération minimale du BMC.
 6. Suppression des garde-fous « Custom exige Secure Boot actif » : comportement du
    firmware à confirmer.
+7. Statut d'implémentation : le code et ses tests (faux BMC, specs OpenAPI Dell) sont en place ;
+   l'ensemble reste non validé sur matériel. Ordre d'essai conseillé : `status`, `db_list`,
+   puis une écriture sur un serveur de test.
