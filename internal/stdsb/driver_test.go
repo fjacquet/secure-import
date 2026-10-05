@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"sbmgr/internal/platform"
 	"sbmgr/internal/redfish"
@@ -274,5 +275,27 @@ func TestResetKeysCriticalMessageIsFailure(t *testing.T) {
 	s.JSON("POST", sys+"/SecureBoot/Actions/SecureBoot.ResetKeys", 200, critical("Base.1.0.GeneralError", "denied"))
 	if _, err := d.ResetKeys(context.Background(), "ResetAllKeysToDefault"); err == nil || !strings.Contains(err.Error(), "denied") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestResetKeysFollowsTheTaskOf202(t *testing.T) {
+	s := testbmc.New(t)
+	s.Redfish("Dell", "1", "16G", "7.20.30.50")
+	s.StdSecureBoot("1", false, "SetupMode", 0)
+	resetDoc(s)
+	task := "/redfish/v1/TaskService/Tasks/JID_9"
+	s.JSONH("POST", sys+"/SecureBoot/Actions/SecureBoot.ResetKeys", 202, map[string]string{"Location": task}, map[string]any{})
+	c, err := redfish.New(s.URL, "u", "p", redfish.Options{PollInterval: time.Millisecond, TaskTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := NewDriver("idrac9", c, 0)
+	s.JSON("GET", task, 200, map[string]any{"TaskState": "Exception", "TaskStatus": "Critical", "Name": "reset"})
+	if _, err := d.ResetKeys(context.Background(), "ResetDB"); err == nil || !strings.Contains(err.Error(), "failed") {
+		t.Errorf("a failed task must be an error, err = %v", err)
+	}
+	s.JSON("GET", task, 200, map[string]any{"TaskState": "Completed", "TaskStatus": "OK", "Name": "reset"})
+	if ch, err := d.ResetKeys(context.Background(), "ResetDB"); err != nil || !strings.Contains(ch.Message, "State: Completed") {
+		t.Errorf("ch = %+v, err = %v", ch, err)
 	}
 }

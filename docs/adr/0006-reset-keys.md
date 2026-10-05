@@ -18,7 +18,10 @@ priorité nulle : elles ne s'exécutent que sur demande explicite de l'opérateu
 
 - Nouvelle action `reset_keys`, jamais implicite.
 - `--reset-type` obligatoire, limité à `ResetAllKeysToDefault`, `DeleteAllKeys`, `DeletePK`
-  puis validé contre `AllowableValues` du BMC quand il en annonce.
+  (valeurs DMTF, identiques dans l'OpenAPI iDRAC10 1.30) et `ResetPK`, `ResetKEK`, `ResetDB`,
+  `ResetDBX` (documentées par l'OpenAPI iDRAC9 7.00 ; `ResetDB` ne touche que `db`), puis
+  validé contre `AllowableValues` du BMC quand il en annonce. Une réponse 202 est suivie
+  jusqu'à la fin de la tâche ; un échec ou une tâche non vérifiée est une erreur.
 - `--confirm` obligatoire : sans lui, l'outil refuse. `--dry-run` montre ce qui serait fait.
 - L'action est cherchée dans `Actions` de la ressource `SecureBoot` ; son absence est une
   erreur « non pris en charge », pas une URI devinée.

@@ -34,7 +34,10 @@ type options struct {
 	noWait, verifyTLS, verbose, dryRun, confirm    bool
 }
 
-var resetTypes = []string{"ResetAllKeysToDefault", "DeleteAllKeys", "DeletePK"}
+// resetTypes: the first three are the DMTF values; ResetPK, ResetKEK, ResetDB and
+// ResetDBX are documented by the Dell iDRAC9 OpenAPI (ResetDB only touches "db").
+// The BMC's own AllowableValues has the last word.
+var resetTypes = []string{"ResetAllKeysToDefault", "DeleteAllKeys", "DeletePK", "ResetPK", "ResetKEK", "ResetDB", "ResetDBX"}
 
 var platformNames = []string{"auto", "idrac9", "idrac10", "ilo", "lenovo", "supermicro"}
 

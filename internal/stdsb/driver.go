@@ -113,8 +113,20 @@ func (d *Driver) ResetKeys(ctx context.Context, resetType string) (platform.Chan
 	if _, bad := redfish.FirstCritical(msgs); bad {
 		return platform.Change{}, fmt.Errorf("key reset refused. Messages: %s", redfish.Summarize(msgs))
 	}
+	verification := ""
+	if location := resp.Header.Get("Location"); resp.Status == http.StatusAccepted && location != "" && !d.H.C.NoWait() {
+		tr, err := d.H.C.WaitTask(ctx, location)
+		switch {
+		case err != nil:
+			return platform.Change{}, fmt.Errorf("key reset requested but not verified: %w", err)
+		case tr.Outcome == redfish.OutcomeFailed:
+			return platform.Change{}, fmt.Errorf("key reset task failed. %s", tr.Detail)
+		default:
+			verification = " (Verification: " + tr.Detail + ")"
+		}
+	}
 	return platform.Change{
-		Message:        "Key reset (" + resetType + ") requested. Messages: " + redfish.Summarize(msgs),
+		Message:        "Key reset (" + resetType + ") requested" + verification + ". Messages: " + redfish.Summarize(msgs),
 		RebootRequired: redfish.NeedsReboot(msgs),
 	}, nil
 }
