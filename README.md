@@ -126,3 +126,4 @@ make test         # tests contre un faux BMC
   - [0006 — `reset_keys` : action destructive, explicite et confirmée](docs/adr/0006-reset-keys.md)
   - [0007 — `probe` : valider une plateforme par des lectures](docs/adr/0007-action-probe.md)
   - [0008 — cobra pour la ligne de commande](docs/adr/0008-cobra-pour-la-ligne-de-commande.md)
+  - [0010 — GoReleaser, release signée, SBOM et provenance](docs/adr/0010-goreleaser-release-signee.md)
