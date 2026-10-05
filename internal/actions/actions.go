@@ -18,6 +18,7 @@ import (
 type Params struct {
 	CertURI, CertFile string
 	ResetType         string
+	Capture           bool // probe: keep a redacted copy of the raw responses
 	// DryRun reads and validates everything but writes nothing: the result
 	// says what would change.
 	DryRun bool

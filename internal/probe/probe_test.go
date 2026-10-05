@@ -1,0 +1,117 @@
+package probe
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"sbmgr/internal/redfish"
+	"sbmgr/internal/report"
+	"sbmgr/internal/testbmc"
+)
+
+const (
+	sys = "/redfish/v1/Systems/1"
+	dbs = sys + "/SecureBoot/SecureBootDatabases"
+)
+
+func client(t *testing.T, s *testbmc.Server) *redfish.Client {
+	t.Helper()
+	c, err := redfish.New(s.URL, "admin", "pw", redfish.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func find(checks []report.Check, name string) (report.Check, bool) {
+	for _, c := range checks {
+		if c.Name == name {
+			return c, true
+		}
+	}
+	return report.Check{}, false
+}
+
+func ilo(t *testing.T) *testbmc.Server {
+	s := testbmc.New(t)
+	s.Redfish("HPE", "1", "iLO 6", "1.62")
+	s.StdSecureBoot("1", true, "UserMode", 1)
+	s.JSON("GET", sys, 200, map[string]any{"SecureBoot": testbmc.Link(sys + "/SecureBoot"), "SerialNumber": "SN-SECRET-1"})
+	s.JSON("GET", dbs+"/db/Certificates/1", 200, map[string]any{
+		"Id": "1", "Fingerprint": "AB:CD", "FingerprintHashAlgorithm": "SHA-256",
+		"Subject": map[string]any{"CommonName": "Vendor CA"}})
+	return s
+}
+
+func TestProbeReportsEveryCheckAndWritesNothing(t *testing.T) {
+	s := ilo(t)
+	rep := Run(context.Background(), client(t, s), "auto", "", false)
+	if rep.Platform != "ilo" {
+		t.Errorf("platform = %q", rep.Platform)
+	}
+	for _, name := range []string{"service root", "platform detection", "SecureBoot resource", "SecureBoot databases",
+		"db certificates", "driver status", "driver db_list"} {
+		c, ok := find(rep.Checks, name)
+		if !ok || c.Status != report.CheckOK {
+			t.Errorf("check %q = %+v (found %v)", name, c, ok)
+		}
+	}
+	if c, _ := find(rep.Checks, "db certificate fields"); !strings.Contains(c.Detail, "Fingerprint") || !strings.Contains(c.Detail, "Issuer") {
+		t.Errorf("certificate fields = %+v", c)
+	}
+	for _, r := range s.Requests() {
+		if r.Method != "GET" {
+			t.Errorf("probe sent %s %s: it must only read", r.Method, r.Path)
+		}
+	}
+}
+
+func TestProbeFlagsMissingPartsInsteadOfStopping(t *testing.T) {
+	s := testbmc.New(t)
+	s.Redfish("Supermicro", "1", "BMC", "1.0")
+	s.JSON("GET", sys, 200, map[string]any{"SecureBoot": testbmc.Link(sys + "/SecureBoot")})
+	s.JSON("GET", sys+"/SecureBoot", 403, map[string]any{})
+	rep := Run(context.Background(), client(t, s), "auto", "", false)
+	if c, _ := find(rep.Checks, "SecureBoot resource"); c.Status != report.CheckFail || !strings.Contains(c.Detail, "403") {
+		t.Errorf("SecureBoot resource = %+v", c)
+	}
+	if _, ok := find(rep.Checks, "driver status"); !ok {
+		t.Error("later checks must still run")
+	}
+	if rep.OK() {
+		t.Error("a failing check must make the report fail")
+	}
+}
+
+func TestProbeCaptureRedactsIdentifiers(t *testing.T) {
+	s := ilo(t)
+	rep := Run(context.Background(), client(t, s), "auto", "", true)
+	raw, ok := rep.Capture[sys]
+	if !ok {
+		t.Fatalf("capture keys = %v", keys(rep.Capture))
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc["SerialNumber"] == "SN-SECRET-1" || !strings.Contains(string(raw), "redacted") {
+		t.Errorf("serial number leaked: %s", raw)
+	}
+	all, _ := json.Marshal(rep.Capture)
+	if strings.Contains(string(all), "SN-SECRET-1") || strings.Contains(string(all), "pw") && strings.Contains(string(all), `"pw"`) {
+		t.Error("capture holds a secret")
+	}
+	if rep2 := Run(context.Background(), client(t, ilo(t)), "auto", "", false); rep2.Capture != nil {
+		t.Error("nothing is captured unless asked")
+	}
+}
+
+func keys(m map[string]json.RawMessage) []string {
+	var out []string
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
