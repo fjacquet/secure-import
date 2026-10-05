@@ -29,7 +29,20 @@ func (d *Driver) SetSecureBoot(ctx context.Context, enable bool) (platform.Chang
 	if err != nil {
 		return platform.Change{}, err
 	}
-	msgs := redfish.ParseMessages(resp.Body)
+	return verdict(redfish.ParseMessages(resp.Body))
+}
+
+// ResetKeys runs the key reset and reads the verdict like SetSecureBoot.
+func (d *Driver) ResetKeys(ctx context.Context, resetType string) (platform.Change, error) {
+	resp, err := d.H.ResetKeys(ctx, resetType)
+	if err != nil {
+		return platform.Change{}, err
+	}
+	return verdict(redfish.ParseMessages(resp.Body))
+}
+
+// verdict applies the XCC rule: HTTP 200 whatever happened, the result is in the messages.
+func verdict(msgs []redfish.Message) (platform.Change, error) {
 	for _, m := range msgs {
 		if strings.Contains(strings.ToLower(m.ID), "physicalpresenceerror") {
 			return platform.Change{}, fmt.Errorf("physical presence not asserted: %s", m.Text)

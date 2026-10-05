@@ -42,13 +42,6 @@ func New(c *redfish.Client, name, method string) *Driver {
 func (d *Driver) Name() string { return d.name }
 
 func (d *Driver) Supports(action string) bool {
-	if d.name == "idrac10" {
-		switch action {
-		case platform.ActionStatus, platform.ActionDBList, platform.ActionDBImport, platform.ActionDBDelete:
-			return true
-		}
-		return false
-	}
 	return slices.Contains(platform.AllActions, action)
 }
 
@@ -200,4 +193,9 @@ func jobID(loc string) string {
 		return loc[i:]
 	}
 	return loc[strings.LastIndex(loc, "/")+1:]
+}
+
+// ResetKeys delegates to the standard SecureBoot.ResetKeys action.
+func (d *Driver) ResetKeys(ctx context.Context, resetType string) (platform.Change, error) {
+	return d.std.ResetKeys(ctx, resetType)
 }

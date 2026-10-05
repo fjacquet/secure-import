@@ -29,6 +29,9 @@ func TestUsageErrorsExitWithTwo(t *testing.T) {
 		{"import needs file", []string{"-i", "a", "-o", "b", "-a", "db_import"}, "db_import requires --cert-file"},
 		{"delete needs uri", []string{"-i", "a", "-o", "b", "-a", "db_delete"}, "db_delete requires --cert-uri"},
 		{"export needs both", []string{"-i", "a", "-o", "b", "-a", "db_export", "--cert-uri", "/x"}, "db_export requires --cert-uri and --cert-file"},
+		{"reset needs a type", []string{"-i", "a", "-o", "b", "-a", "reset_keys", "--confirm"}, "reset_keys requires --reset-type"},
+		{"reset type is checked", []string{"-i", "a", "-o", "b", "-a", "reset_keys", "--reset-type", "Nuke", "--confirm"}, "reset-type must be"},
+		{"reset needs confirm", []string{"-i", "a", "-o", "b", "-a", "reset_keys", "--reset-type", "DeleteAllKeys"}, "requires --confirm"},
 		{"bad concurrency", []string{"-i", "a", "-o", "b", "-a", "status", "--concurrency", "0"}, "concurrency must be positive"},
 	}
 	for _, tc := range cases {

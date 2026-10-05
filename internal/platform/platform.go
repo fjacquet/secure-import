@@ -18,12 +18,13 @@ const (
 	ActionDBImport       = "db_import"
 	ActionDBExport       = "db_export"
 	ActionDBDelete       = "db_delete"
+	ActionResetKeys      = "reset_keys"
 )
 
 // AllActions lists every action the CLI accepts.
 var AllActions = []string{
 	ActionStatus, ActionEnable, ActionDisable, ActionPolicyCustom, ActionPolicyStandard,
-	ActionDBList, ActionDBImport, ActionDBExport, ActionDBDelete,
+	ActionDBList, ActionDBImport, ActionDBExport, ActionDBDelete, ActionResetKeys,
 }
 
 // IsDBAction reports whether the action targets the certificate store.
@@ -72,6 +73,7 @@ type Platform interface {
 	DBImport(ctx context.Context, file string) (Change, error)
 	DBExport(ctx context.Context, uri, file string) (Change, error)
 	DBDelete(ctx context.Context, uri string) (Change, error)
+	ResetKeys(ctx context.Context, resetType string) (Change, error)
 }
 
 // Unsupported is embedded by drivers; it answers ErrUnsupported for everything
@@ -101,4 +103,8 @@ func PendingStatus(target string, reboot bool) string {
 		return target + " (Pending - Reboot Required)"
 	}
 	return target
+}
+
+func (Unsupported) ResetKeys(context.Context, string) (Change, error) {
+	return Change{}, ErrUnsupported
 }

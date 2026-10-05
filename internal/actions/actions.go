@@ -17,6 +17,7 @@ import (
 // Params carries the CLI arguments some actions need.
 type Params struct {
 	CertURI, CertFile string
+	ResetType         string
 	// DryRun reads and validates everything but writes nothing: the result
 	// says what would change.
 	DryRun bool
@@ -33,7 +34,7 @@ func Run(ctx context.Context, p platform.Platform, ip, action string, par Params
 	if platform.IsDBAction(action) {
 		runDB(ctx, p, action, par, &r)
 	} else {
-		runSecureBoot(ctx, p, action, par.DryRun, &r)
+		runSecureBoot(ctx, p, action, par, &r)
 	}
 	return r
 }
@@ -91,7 +92,8 @@ func setIf(dst *string, v string) {
 	}
 }
 
-func runSecureBoot(ctx context.Context, p platform.Platform, action string, dry bool, r *report.Result) {
+func runSecureBoot(ctx context.Context, p platform.Platform, action string, par Params, r *report.Result) {
+	dry := par.DryRun
 	st, err := p.Status(ctx)
 	if err != nil {
 		r.Error = "Failed to get status: " + err.Error()
@@ -111,6 +113,8 @@ func runSecureBoot(ctx context.Context, p platform.Platform, action string, dry 
 	switch action {
 	case platform.ActionStatus:
 		r.Success, r.NewStatus, r.NewPolicy = true, r.CurrentStatus, r.CurrentPolicy
+	case platform.ActionResetKeys:
+		resetKeys(ctx, p, par, st, r)
 	case platform.ActionPolicyCustom, platform.ActionPolicyStandard:
 		setPolicy(ctx, p, action, st, dry, r)
 	default:
@@ -252,4 +256,21 @@ func dryDelete(ctx context.Context, p platform.Platform, uri string, r *report.R
 	}
 	r.Success = true
 	r.Message = "DRY RUN: would delete " + uri
+}
+
+// resetKeys runs the destructive key reset. The CLI refuses it without --confirm.
+func resetKeys(ctx context.Context, p platform.Platform, par Params, st platform.Status, r *report.Result) {
+	if par.DryRun {
+		r.Success, r.NewStatus = true, r.CurrentStatus
+		r.ChangeMessage = "DRY RUN: would reset Secure Boot keys (" + par.ResetType + ")"
+		return
+	}
+	ch, err := p.ResetKeys(ctx, par.ResetType)
+	if err != nil {
+		r.Error = "Failed to reset keys: " + err.Error()
+		return
+	}
+	r.ChangeMessage = ch.Message
+	r.NewStatus = platform.PendingStatus(r.CurrentStatus, ch.RebootRequired)
+	r.Success = true
 }

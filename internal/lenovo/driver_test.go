@@ -106,3 +106,18 @@ func realCert(t *testing.T) []byte {
 	}
 	return der
 }
+
+func TestResetKeysReadsVerdictFromMessages(t *testing.T) {
+	s, d := newFake(t)
+	s.JSON("GET", sb, 200, map[string]any{"SecureBootDatabases": map[string]string{"@odata.id": sb + "/SecureBootDatabases"},
+		"Actions": map[string]any{"#SecureBoot.ResetKeys": map[string]any{"target": sb + "/Actions/SecureBoot.ResetKeys"}}})
+	s.JSON("POST", sb+"/Actions/SecureBoot.ResetKeys", 200, msg("Lenovo.1.0.RebootRequired", "reboot"))
+	ch, err := d.ResetKeys(context.Background(), "ResetAllKeysToDefault")
+	if err != nil || !ch.RebootRequired {
+		t.Fatalf("ch = %+v, err = %v", ch, err)
+	}
+	s.JSON("POST", sb+"/Actions/SecureBoot.ResetKeys", 200, msg("Lenovo.1.0.PhysicalPresenceError", "no presence"))
+	if _, err := d.ResetKeys(context.Background(), "ResetAllKeysToDefault"); err == nil || !strings.Contains(err.Error(), "physical presence") {
+		t.Errorf("err = %v", err)
+	}
+}

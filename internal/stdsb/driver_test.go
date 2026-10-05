@@ -232,3 +232,47 @@ func TestStatusSaysLicenseRequired(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func resetDoc(s *testbmc.Server, allowed ...string) {
+	s.JSON("GET", sys+"/SecureBoot", 200, map[string]any{
+		"SecureBootEnable": true, "SecureBootDatabases": testbmc.Link(dbs),
+		"Actions": map[string]any{"#SecureBoot.ResetKeys": map[string]any{
+			"target": sys + "/SecureBoot/Actions/SecureBoot.ResetKeys", "ResetKeysType@Redfish.AllowableValues": allowed}}})
+}
+
+func TestResetKeysPostsTheTypeTheBMCAllows(t *testing.T) {
+	s, d := newFake(t, 0)
+	resetDoc(s, "ResetAllKeysToDefault", "DeleteAllKeys")
+	s.JSON("POST", sys+"/SecureBoot/Actions/SecureBoot.ResetKeys", 200, map[string]any{})
+	if _, err := d.ResetKeys(context.Background(), "DeleteAllKeys"); err != nil {
+		t.Fatal(err)
+	}
+	var body string
+	for _, r := range s.Requests() {
+		if r.Method == "POST" && strings.HasSuffix(r.Path, "ResetKeys") {
+			body = r.Body
+		}
+	}
+	if !strings.Contains(body, `"ResetKeysType":"DeleteAllKeys"`) {
+		t.Errorf("body = %q", body)
+	}
+	if _, err := d.ResetKeys(context.Background(), "DeletePK"); err == nil || !strings.Contains(err.Error(), "ResetAllKeysToDefault") {
+		t.Errorf("a type the BMC does not list must be refused with the allowed values, err = %v", err)
+	}
+}
+
+func TestResetKeysWithoutActionIsUnsupported(t *testing.T) {
+	_, d := newFake(t, 0)
+	if _, err := d.ResetKeys(context.Background(), "ResetAllKeysToDefault"); err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestResetKeysCriticalMessageIsFailure(t *testing.T) {
+	s, d := newFake(t, 0)
+	resetDoc(s)
+	s.JSON("POST", sys+"/SecureBoot/Actions/SecureBoot.ResetKeys", 200, critical("Base.1.0.GeneralError", "denied"))
+	if _, err := d.ResetKeys(context.Background(), "ResetAllKeysToDefault"); err == nil || !strings.Contains(err.Error(), "denied") {
+		t.Errorf("err = %v", err)
+	}
+}

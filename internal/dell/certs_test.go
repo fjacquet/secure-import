@@ -202,3 +202,29 @@ func TestDBImportSkipsCertificateAlreadyInOEMStore(t *testing.T) {
 		t.Error("nothing must be uploaded")
 	}
 }
+
+// iDRAC10's standard Certificate resource returns JSON, not the raw certificate.
+func TestDBExportReadsCertificateStringFromJSON(t *testing.T) {
+	s, d := newFake9(t, "")
+	pemText := "-----BEGIN CERTIFICATE-----\nQUJD\n-----END CERTIFICATE-----\n"
+	s.JSON("GET", store+"/Std.1", 200, map[string]any{"CertificateString": pemText, "CertificateType": "PEM"})
+	out := filepath.Join(t.TempDir(), "o.pem")
+	if _, err := d.DBExport(context.Background(), store+"/Std.1", out); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(out); string(b) != pemText {
+		t.Errorf("file = %q", b)
+	}
+}
+
+func TestDBExportOfJSONWithoutCertificateIsAnError(t *testing.T) {
+	s, d := newFake9(t, "")
+	s.JSON("GET", store+"/Oem.1", 200, map[string]any{"Thumbprint": "ab", "SubjectCommonName_CN": "x"})
+	out := filepath.Join(t.TempDir(), "o.pem")
+	if _, err := d.DBExport(context.Background(), store+"/Oem.1", out); err == nil {
+		t.Error("a metadata-only answer must not be written as a certificate")
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Error("nothing must be written")
+	}
+}

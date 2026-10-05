@@ -232,3 +232,23 @@ func TestDryRunWritesNothing(t *testing.T) {
 		}
 	}
 }
+
+func (f *fake) ResetKeys(_ context.Context, t string) (platform.Change, error) {
+	f.calls = append(f.calls, "reset="+t)
+	return f.change, f.err
+}
+
+func TestResetKeysActionAndDryRun(t *testing.T) {
+	ctx := context.Background()
+	f := newFake()
+	f.change = platform.Change{Message: "done", RebootRequired: true}
+	r := Run(ctx, f, "ip", platform.ActionResetKeys, Params{ResetType: "DeleteAllKeys"})
+	if !r.Success || !slices.Contains(f.calls, "reset=DeleteAllKeys") || !strings.Contains(r.ChangeMessage, "done") {
+		t.Errorf("r = %+v, calls = %v", r, f.calls)
+	}
+	f = newFake()
+	r = Run(ctx, f, "ip", platform.ActionResetKeys, Params{ResetType: "DeleteAllKeys", DryRun: true})
+	if !r.Success || !strings.Contains(r.ChangeMessage, "DRY RUN") || slices.Contains(f.calls, "reset=DeleteAllKeys") {
+		t.Errorf("dry run: r = %+v, calls = %v", r, f.calls)
+	}
+}

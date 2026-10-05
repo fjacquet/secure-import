@@ -13,6 +13,7 @@ import (
 var driverActions = []string{
 	platform.ActionStatus, platform.ActionEnable, platform.ActionDisable,
 	platform.ActionDBList, platform.ActionDBImport, platform.ActionDBDelete,
+	platform.ActionResetKeys,
 }
 
 // Driver is the generic DMTF-standard driver (HPE iLO, Supermicro). Other
@@ -100,4 +101,20 @@ func (d *Driver) DBDelete(ctx context.Context, uri string) (platform.Change, err
 		}
 	}
 	return platform.Change{Message: "DB certificate deleted successfully"}, nil
+}
+
+// ResetKeys asks the BMC to reset or delete the Secure Boot keys.
+func (d *Driver) ResetKeys(ctx context.Context, resetType string) (platform.Change, error) {
+	resp, err := d.H.ResetKeys(ctx, resetType)
+	if err != nil {
+		return platform.Change{}, err
+	}
+	msgs := redfish.ParseMessages(resp.Body)
+	if _, bad := redfish.FirstCritical(msgs); bad {
+		return platform.Change{}, fmt.Errorf("key reset refused. Messages: %s", redfish.Summarize(msgs))
+	}
+	return platform.Change{
+		Message:        "Key reset (" + resetType + ") requested. Messages: " + redfish.Summarize(msgs),
+		RebootRequired: redfish.NeedsReboot(msgs),
+	}, nil
 }

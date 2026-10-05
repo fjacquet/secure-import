@@ -13,8 +13,8 @@ func TestIsDBAction(t *testing.T) {
 			t.Errorf("IsDBAction(%q) = %v, want %v", a, !want, want)
 		}
 	}
-	if len(AllActions) != 9 {
-		t.Errorf("AllActions has %d entries, want 9", len(AllActions))
+	if len(AllActions) != 10 {
+		t.Errorf("AllActions has %d entries, want 10", len(AllActions))
 	}
 }
 

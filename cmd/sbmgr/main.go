@@ -26,13 +26,15 @@ import (
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 type options struct {
-	input, output, action, format       string
-	platform, method, certURI, certFile string
-	caFile                              string
-	concurrency, retries                int
-	timeout, taskTimeout                time.Duration
-	noWait, verifyTLS, verbose, dryRun  bool
+	input, output, action, format                  string
+	platform, method, certURI, certFile, resetType string
+	caFile                                         string
+	concurrency, retries                           int
+	timeout, taskTimeout                           time.Duration
+	noWait, verifyTLS, verbose, dryRun, confirm    bool
 }
+
+var resetTypes = []string{"ResetAllKeysToDefault", "DeleteAllKeys", "DeletePK"}
 
 var platformNames = []string{"auto", "idrac9", "idrac10", "ilo", "lenovo", "supermicro"}
 
@@ -52,6 +54,12 @@ func (o *options) validate() string {
 		return fmt.Sprintf("unknown platform %q (choose one of: %s)", o.platform, strings.Join(platformNames, ", "))
 	case o.method != "" && o.method != "oem" && o.method != "standard":
 		return "method must be oem or standard"
+	case o.action == platform.ActionResetKeys && o.resetType == "":
+		return "reset_keys requires --reset-type"
+	case o.action == platform.ActionResetKeys && !slices.Contains(resetTypes, o.resetType):
+		return "reset-type must be one of " + strings.Join(resetTypes, ", ")
+	case o.action == platform.ActionResetKeys && !o.confirm && !o.dryRun:
+		return "reset_keys is destructive (DeleteAllKeys and DeletePK leave the server in Setup Mode) and requires --confirm"
 	case o.action == platform.ActionDBImport && o.certFile == "":
 		return "db_import requires --cert-file"
 	case o.action == platform.ActionDBDelete && o.certURI == "":
@@ -82,6 +90,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&o.method, "method", "", "Dell certificate import method: oem or standard (default oem on iDRAC9, standard on iDRAC10)")
 	fs.StringVar(&o.certURI, "cert-uri", "", "certificate URI for db_export and db_delete")
 	fs.StringVar(&o.certFile, "cert-file", "", "certificate file for db_import (PEM or DER, max 64 KiB) and db_export (host IP added to the name)")
+	fs.StringVar(&o.resetType, "reset-type", "", "reset_keys type: "+strings.Join(resetTypes, ", "))
+	fs.BoolVar(&o.confirm, "confirm", false, "confirm a destructive action (reset_keys)")
 	fs.BoolVar(&o.dryRun, "dry-run", false, "read and validate only: report what would change, write nothing")
 	fs.IntVar(&o.retries, "retries", 2, "extra attempts on transient errors (connection resets on reads, BMC busy answers)")
 	fs.IntVar(&o.concurrency, "concurrency", 20, "hosts processed in parallel")
@@ -140,7 +150,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	defer stop()
 	results := runner.Run(ctx, hosts, runner.Options{
 		Action:      o.action,
-		Params:      actions.Params{CertURI: o.certURI, CertFile: o.certFile, DryRun: o.dryRun},
+		Params:      actions.Params{CertURI: o.certURI, CertFile: o.certFile, DryRun: o.dryRun, ResetType: o.resetType},
 		Platform:    o.platform,
 		Method:      o.method,
 		Concurrency: o.concurrency,

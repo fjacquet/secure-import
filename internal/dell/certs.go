@@ -1,7 +1,9 @@
 package dell
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -111,10 +113,20 @@ func (d *Driver) DBExport(ctx context.Context, uri, file string) (platform.Chang
 	if err != nil {
 		return platform.Change{}, err
 	}
-	if len(resp.Body) == 0 {
+	body := resp.Body
+	if t := bytes.TrimSpace(body); len(t) > 0 && t[0] == '{' { // iDRAC10: a JSON Certificate resource
+		var doc struct {
+			CertificateString string
+		}
+		if json.Unmarshal(body, &doc) != nil || doc.CertificateString == "" {
+			return platform.Change{}, fmt.Errorf("%s does not return the certificate itself, only metadata", uri)
+		}
+		body = []byte(doc.CertificateString)
+	}
+	if len(body) == 0 {
 		return platform.Change{}, fmt.Errorf("exported certificate is empty: %s", uri)
 	}
-	if err := os.WriteFile(file, resp.Body, 0o600); err != nil {
+	if err := os.WriteFile(file, body, 0o600); err != nil {
 		return platform.Change{}, fmt.Errorf("failed to save certificate: %w", err)
 	}
 	return platform.Change{Message: "DB certificate exported to " + file}, nil

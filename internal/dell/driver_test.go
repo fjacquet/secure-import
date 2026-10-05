@@ -140,11 +140,12 @@ func TestSupportsPerGeneration(t *testing.T) {
 			t.Errorf("idrac9 must support %s", a)
 		}
 	}
+	// The iDRAC10 OpenAPI (1.30) has SecureBoot PATCH, Bios/Settings with SecureBootPolicy,
+	// the certificate collections and both ResetKeys actions: every action applies.
 	d10 := New(nil, "idrac10", "")
 	for _, a := range platform.AllActions {
-		want := a == platform.ActionStatus || a == platform.ActionDBList || a == platform.ActionDBImport || a == platform.ActionDBDelete
-		if d10.Supports(a) != want {
-			t.Errorf("idrac10 Supports(%s) = %v, want %v", a, !want, want)
+		if !d10.Supports(a) {
+			t.Errorf("idrac10 must support %s", a)
 		}
 	}
 }

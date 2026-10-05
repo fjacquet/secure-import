@@ -30,7 +30,11 @@ type Doc struct {
 	SecureBootCurrentBoot string       `json:"SecureBootCurrentBoot"`
 	SecureBootMode        string       `json:"SecureBootMode"`
 	SecureBootDatabases   redfish.Link `json:"SecureBootDatabases"`
-	Oem                   struct {
+	Actions               map[string]struct {
+		Target  string   `json:"target"`
+		Allowed []string `json:"ResetKeysType@Redfish.AllowableValues"`
+	} `json:"Actions"`
+	Oem struct {
 		Dell struct {
 			Certificates redfish.Link `json:"Certificates"`
 		} `json:"Dell"`
@@ -319,4 +323,22 @@ func AlreadyPresent(listed []platform.Cert, fileData []byte) (string, bool) {
 		uri = listed[i].URI
 	}
 	return uri, true
+}
+
+// ResetKeys runs the SecureBoot.ResetKeys action discovered in the SecureBoot
+// resource. resetType must be one of the values the BMC announces, when it
+// announces any.
+func (h *Helper) ResetKeys(ctx context.Context, resetType string) (*redfish.Response, error) {
+	doc, err := h.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	act, ok := doc.Actions["#SecureBoot.ResetKeys"]
+	if !ok || act.Target == "" {
+		return nil, errors.New("resetting Secure Boot keys is not supported by this BMC (no ResetKeys action)")
+	}
+	if len(act.Allowed) > 0 && !slices.Contains(act.Allowed, resetType) {
+		return nil, fmt.Errorf("reset type %q is not allowed by this BMC (allowed: %s)", resetType, strings.Join(act.Allowed, ", "))
+	}
+	return h.C.SendJSON(ctx, http.MethodPost, act.Target, map[string]string{"ResetKeysType": resetType})
 }
