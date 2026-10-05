@@ -2,13 +2,20 @@ package actions
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"sbmgr/internal/platform"
 )
@@ -391,5 +398,55 @@ func TestResetsNeedConfirmButNotSetupModeWhicheverSpelling(t *testing.T) {
 		if r := Run(ctx, f, "ip", platform.ActionResetKeys, p); !r.Success || !slices.Contains(f.calls, "reset="+p.ResetType) {
 			t.Errorf("%+v with confirm in UserMode: %+v, calls = %v", p, r, f.calls)
 		}
+	}
+}
+
+// ---- deferred minors
+
+// holder is a platform that can answer "is this certificate already enrolled?" itself
+// (the Dell OEM store cannot be judged from DBList).
+type holder struct {
+	*fake
+	uri string
+}
+
+func (h holder) HasCert(context.Context, []byte) (string, bool) { return h.uri, h.uri != "" }
+
+func TestDryRunImportAsksThePlatformWhetherTheCertificateIsPresent(t *testing.T) {
+	// a real PEM so the file validation passes
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "t"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
+	der, _ := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	file := filepath.Join(t.TempDir(), "c.der")
+	_ = os.WriteFile(file, der, 0o600)
+	h := holder{fake: newFake(), uri: "/redfish/v1/x/Certificates/CustSecbootpolicy.3"}
+	r := Run(context.Background(), h, "ip", platform.ActionDBImport, Params{CertFile: file, DryRun: true})
+	if !r.Success || !strings.Contains(r.Message, "already present") || !strings.Contains(r.Message, "CustSecbootpolicy.3") {
+		t.Errorf("r = %+v", r)
+	}
+}
+
+func TestDryRunDeleteOfAnotherDatabaseSaysItWasNotVerified(t *testing.T) {
+	f := newFake() // bound to db: its DBList cannot contain a KEK member
+	f.status.Mode = "SetupMode"
+	r := Run(context.Background(), f, "ip", platform.ActionDBDelete, Params{DryRun: true, Confirm: true,
+		CertURI: "/redfish/v1/Systems/1/SecureBoot/SecureBootDatabases/KEK/Certificates/2"})
+	if !r.Success || !strings.Contains(r.Message, "not verified") || !strings.Contains(r.Message, "--database KEK") {
+		t.Errorf("a KEK member must not be reported as 'not found' from the db listing: %+v", r)
+	}
+}
+
+func TestDBXSignatureMembersCanBeDeleted(t *testing.T) {
+	f := newFake()
+	uri := "/redfish/v1/Systems/1/SecureBoot/SecureBootDatabases/dbx/Signatures/4"
+	if r := Run(context.Background(), f, "ip", platform.ActionDBDelete, Params{CertURI: uri, Confirm: true}); !r.Success || !slices.Contains(f.calls, "delete="+uri) {
+		t.Errorf("r = %+v, calls = %v", r, f.calls)
+	}
+	if r := Run(context.Background(), newFake(), "ip", platform.ActionDBDelete, Params{CertURI: uri}); r.Success || !strings.Contains(r.Error, "--confirm") {
+		t.Errorf("a dbx delete still needs --confirm: %+v", r)
+	}
+	if r := Run(context.Background(), newFake(), "ip", platform.ActionDBDelete, Params{CertURI: "/redfish/v1/AccountService/Accounts/2", Confirm: true}); r.Success {
+		t.Error("only certificate or signature URIs can be deleted")
 	}
 }

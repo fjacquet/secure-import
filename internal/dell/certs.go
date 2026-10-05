@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"sbmgr/internal/platform"
 	"sbmgr/internal/redfish"
@@ -157,16 +158,38 @@ func (d *Driver) oemHas(ctx context.Context, data []byte) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	for i, c := range listed {
-		resp, err := d.c.Do(ctx, http.MethodGet, c.URI, http.Header{"Accept": {"application/octet-stream"}}, nil)
-		if err != nil {
-			continue
-		}
-		if fps, err := stdsb.CertSHA256s(resp.Body); err == nil && len(fps) > 0 {
-			listed[i].PEM = string(pemOf(resp.Body))
-		}
+	// Entries are downloaded by a small pool: a store can hold dozens, and each entry is a
+	// separate request on a slow BMC. Only entries that look like certificates are compared.
+	const workers = 4
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, workers)
+	for i := range listed {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			resp, err := d.c.Do(ctx, http.MethodGet, listed[i].URI, http.Header{"Accept": {"application/octet-stream"}}, nil)
+			if err != nil {
+				return
+			}
+			if fps, err := stdsb.CertSHA256s(resp.Body); err == nil && len(fps) > 0 {
+				listed[i].PEM = string(pemOf(resp.Body))
+			}
+		}()
 	}
+	wg.Wait()
 	return stdsb.AlreadyPresent(listed, data)
+}
+
+// HasCert reports whether the certificate(s) in data are already enrolled in the chosen
+// database, and where, without importing anything. It is what a dry run needs: the OEM
+// store lists opaque entries, so only downloading them can tell.
+func (d *Driver) HasCert(ctx context.Context, data []byte) (string, bool) {
+	if d.method == "standard" || d.standardOnly() {
+		return d.std.HasCert(ctx, data)
+	}
+	return d.oemHas(ctx, data)
 }
 
 func pemOf(b []byte) []byte {

@@ -100,7 +100,7 @@ func runDB(ctx context.Context, p platform.Platform, action string, par Params, 
 			return
 		}
 		if par.DryRun {
-			dryDelete(ctx, p, uri, r)
+			dryDelete(ctx, p, uri, par.Database, r)
 			return
 		}
 		ch, err := p.DBDelete(ctx, uri)
@@ -219,10 +219,11 @@ func hostFile(file, ip string) string {
 	return strings.TrimSuffix(file, ext) + "_" + strings.NewReplacer(":", "-", "/", "-").Replace(ip) + ext
 }
 
-// isCertURI guards db_export and db_delete: the URI must point into a Certificates
-// collection, so a typo cannot delete an account or a session.
+// isCertURI guards db_export and db_delete: the URI must point into a Certificates (or, for
+// dbx, Signatures) collection, so a typo cannot delete an account or a session.
 func isCertURI(uri string) bool {
-	return strings.Contains(strings.ToLower(uri), "/certificates/")
+	lower := strings.ToLower(uri)
+	return strings.Contains(lower, "/certificates/") || strings.Contains(lower, "/signatures/")
 }
 
 // certDetails lists the optional fields BMCs returned, one entry per certificate,
@@ -261,17 +262,32 @@ func dryImport(ctx context.Context, p platform.Platform, file string, r *report.
 		return
 	}
 	r.Success = true
-	if listed, err := p.DBList(ctx); err == nil {
-		if uri, ok := stdsb.AlreadyPresent(listed, data); ok {
-			r.Message = "DRY RUN: certificate already present (" + uri + "), nothing would be imported"
-			return
-		}
+	var uri string
+	var present bool
+	if h, ok := p.(interface {
+		HasCert(context.Context, []byte) (string, bool)
+	}); ok {
+		uri, present = h.HasCert(ctx, data) // the platform knows how to compare its own store
+	} else if listed, err := p.DBList(ctx); err == nil {
+		uri, present = stdsb.AlreadyPresent(listed, data)
+	}
+	if present {
+		r.Message = "DRY RUN: certificate already present (" + uri + "), nothing would be imported"
+		return
 	}
 	r.Message = "DRY RUN: would import " + file
 }
 
 // dryDelete checks the certificate is in the store before saying it would be deleted.
-func dryDelete(ctx context.Context, p platform.Platform, uri string, r *report.Result) {
+func dryDelete(ctx context.Context, p platform.Platform, uri string, bound string, r *report.Result) {
+	// The platform lists only the database it is bound to (db by default). A member of
+	// another database cannot be checked from that listing, and saying "not found" would
+	// be wrong: say what could not be verified and how to verify it.
+	if db := databaseOfURI(uri); db != "" && !strings.EqualFold(db, bound) {
+		r.Success = true
+		r.Message = "DRY RUN: would delete " + uri + " (not verified: pass --database " + db + " to check that it exists)"
+		return
+	}
 	listed, err := p.DBList(ctx)
 	if err != nil {
 		r.Error = "Failed to get DB certificates: " + err.Error()
