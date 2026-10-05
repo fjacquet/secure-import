@@ -273,7 +273,7 @@ func (p *prober) dell(ctx context.Context) {
 }
 
 // sensitive matches keys whose values identify a machine or hold a secret.
-var sensitive = regexp.MustCompile(`(?i)serial|uuid|mac|address|host|fqdn|password|token|asset|sku|partnumber|secret|key$`)
+var sensitive = regexp.MustCompile(`(?i)serial|uuid|mac|address|host|fqdn|dns|domain|password|token|asset|sku|partnumber|secret|key$|servicetag|nodeid|expressservice|iscsi|initiator|iqn|ipv4|ipv6`)
 
 // redact replaces the value of every sensitive key by "<redacted>", recursively.
 // Keys listed in keep are never redacted.

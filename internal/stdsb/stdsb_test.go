@@ -116,3 +116,10 @@ func splitPairs(s string) []string {
 	}
 	return out
 }
+
+func TestMatchesAcceptsTheDMTFHashAlgorithmName(t *testing.T) {
+	fp := "ab" + strings.Repeat("00", 31)
+	if !Matches(platform.Cert{Fingerprint: fp, Algorithm: "TPM_ALG_SHA256"}, fp) {
+		t.Error("TPM_ALG_SHA256 is the DMTF spelling of SHA-256")
+	}
+}

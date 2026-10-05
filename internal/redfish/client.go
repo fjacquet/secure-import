@@ -150,6 +150,9 @@ func (c *Client) Do(ctx context.Context, method, path string, header http.Header
 // do retries transient failures: connection resets on reads (never on writes,
 // which may already have been applied) and explicit "BMC busy" refusals. It never
 // retries authentication or certificate errors.
+// maxRetryDelay caps the exponential backoff (a variable so tests can shorten it).
+var maxRetryDelay = 30 * time.Second
+
 func (c *Client) do(ctx context.Context, method, path string, header http.Header, body []byte, auth bool) (*Response, error) {
 	delay := c.opts.RetryDelay
 	if delay <= 0 {
@@ -166,7 +169,7 @@ func (c *Client) do(ctx context.Context, method, path string, header http.Header
 			return resp, err
 		case <-time.After(delay):
 		}
-		delay *= 2
+		delay = min(delay*2, maxRetryDelay)
 	}
 }
 

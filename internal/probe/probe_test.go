@@ -144,3 +144,17 @@ func TestProbeReportsEachDatabase(t *testing.T) {
 		}
 	}
 }
+
+func TestProbeCaptureRedactsServiceTagsAndInitiatorNames(t *testing.T) {
+	s := ilo(t)
+	s.JSON("GET", sys, 200, map[string]any{"SecureBoot": testbmc.Link(sys + "/SecureBoot"),
+		"Oem":              map[string]any{"Dell": map[string]any{"DellSystem": map[string]any{"ChassisServiceTag": "ABC1234", "NodeID": "N-77", "ExpressServiceCode": "123456789"}}},
+		"SystemServiceTag": "SVC9999", "IscsiInitiatorName": "iqn.1998-01.com.vmware:esx01", "HostName": "esx01.corp.example"})
+	rep := Run(context.Background(), client(t, s), "auto", "", true)
+	all, _ := json.Marshal(rep.Capture)
+	for _, secret := range []string{"ABC1234", "N-77", "123456789", "SVC9999", "iqn.1998", "esx01"} {
+		if strings.Contains(string(all), secret) {
+			t.Errorf("the capture still holds %q", secret)
+		}
+	}
+}

@@ -280,3 +280,24 @@ func TestDoesNotRetryAuthenticationFailures(t *testing.T) {
 		t.Errorf("err = %v, attempts = %d", err, s.Count("GET", "/a"))
 	}
 }
+
+func TestRetryDelayIsCapped(t *testing.T) {
+	old := maxRetryDelay
+	maxRetryDelay = 10 * time.Millisecond
+	defer func() { maxRetryDelay = old }()
+	s := testbmc.New(t)
+	s.Redfish("Dell", "S1", "16G", "7.0.0.0")
+	var n atomic.Int32
+	s.Handle("GET", "/r", func(w http.ResponseWriter, _ *http.Request) {
+		n.Add(1)
+		conn, _, _ := w.(http.Hijacker).Hijack()
+		_ = conn.Close()
+	})
+	c := newClient(t, s, Options{Retries: 100, RetryDelay: time.Millisecond})
+	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
+	defer cancel()
+	_, _ = c.Do(ctx, http.MethodGet, "/r", nil, nil)
+	if n.Load() < 20 {
+		t.Errorf("%d attempts in 600 ms: without a cap the delay doubles past a second after ten retries", n.Load())
+	}
+}
