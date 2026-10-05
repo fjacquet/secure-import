@@ -95,3 +95,17 @@ func TestBadRowDoesNotAbortTheRun(t *testing.T) {
 		t.Errorf("code = %d, stderr = %q, out = %q", code, stderr, b)
 	}
 }
+
+func TestWarnsWhenTLSVerificationIsOff(t *testing.T) {
+	dir := t.TempDir()
+	in := filepath.Join(dir, "in.csv")
+	_ = os.WriteFile(in, []byte("start_ip,end_ip,username,password\n127.0.0.1,,root,pw\n"), 0o600)
+	_, _, stderr := exec(t, "-i", in, "-o", filepath.Join(dir, "o.csv"), "-a", "status", "--timeout", "1s")
+	if !strings.Contains(stderr, "TLS verification is disabled") {
+		t.Errorf("stderr = %q", stderr)
+	}
+	_, _, stderr = exec(t, "-i", in, "-o", filepath.Join(dir, "o.csv"), "-a", "status", "--timeout", "1s", "--verify-tls")
+	if strings.Contains(stderr, "TLS verification is disabled") {
+		t.Errorf("no warning expected with --verify-tls, stderr = %q", stderr)
+	}
+}

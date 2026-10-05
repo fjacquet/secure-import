@@ -109,6 +109,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level})))
 
+	if !o.verifyTLS && o.caFile == "" {
+		fmt.Fprintln(stderr, "warning: TLS verification is disabled; credentials can be intercepted on an untrusted network (use --verify-tls or --ca-file)")
+	}
 	if w := inventory.PermissionWarning(o.input); w != "" {
 		fmt.Fprintln(stderr, "warning:", w)
 	}

@@ -41,6 +41,14 @@ Fichier d'entrée : voir [`examples/nodes.example.csv`](examples/nodes.example.c
 (IP seule, plage sur n'importe quel octet, CIDR). Les mots de passe y sont en clair :
 ne le versionnez pas.
 
+## Sécurité
+
+La vérification TLS est **désactivée par défaut** (les BMC ont presque toujours un
+certificat auto-signé) ; l'outil le signale à chaque exécution. Sur un réseau de
+gestion non maîtrisé, une personne en position d'interception pourrait se faire passer
+pour un BMC et capter les identifiants. Utilisez `--ca-file ca.pem` (ou `--verify-tls`
+avec des certificats valides) et des comptes dédiés à Secure Boot.
+
 ## Compilation
 
 ```sh

@@ -121,7 +121,8 @@ méthodes non gérées. `Status` porte aussi `PendingPolicy` (valeur en attente 
   reboot » ; `Completed` = succès ; `Exception`/`Killed` = échec. Délai maximal
   `--task-timeout` (défaut 120 s). `--no-wait` désactive le suivi.
 - **TLS** : vérification désactivée par défaut (BMC auto-signés) ; `--verify-tls`
-  et `--ca-file` pour l'activer.
+  et `--ca-file` pour l'activer. Un avertissement sur stderr rappelle à chaque exécution
+  que les identifiants peuvent être interceptés sur un réseau non maîtrisé.
 
 ## 6. Détection de plateforme
 
