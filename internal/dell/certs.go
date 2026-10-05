@@ -36,6 +36,9 @@ func (d *Driver) dbStore(ctx context.Context) (string, error) {
 // DBList lists the "db" certificates. With the standard method it asks the DMTF
 // collection first and falls back to the Dell OEM store when that fails.
 func (d *Driver) DBList(ctx context.Context) ([]platform.Cert, error) {
+	if d.standardOnly() {
+		return d.std.DBList(ctx)
+	}
 	if d.method == "standard" {
 		certs, err := d.std.DBList(ctx)
 		if err == nil {
@@ -72,7 +75,7 @@ func (d *Driver) oemList(ctx context.Context) ([]platform.Cert, error) {
 // DBImport enrols a certificate file: by the standard POST when method is
 // "standard", else as a multipart upload to the Dell OEM store.
 func (d *Driver) DBImport(ctx context.Context, file string) (platform.Change, error) {
-	if d.method == "standard" {
+	if d.method == "standard" || d.standardOnly() {
 		return d.std.DBImport(ctx, file)
 	}
 	data, err := stdsb.ReadCertFile(file)

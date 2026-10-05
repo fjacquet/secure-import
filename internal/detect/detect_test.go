@@ -62,3 +62,20 @@ func TestForcedPlatformSkipsDetection(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestBindDatabaseReachesEveryDriverKind(t *testing.T) {
+	for _, tc := range []struct{ vendor, firmware string }{
+		{"Dell", "7.20.30.50"}, {"Dell", "1.30.60.50"}, {"HPE", "1.62"}, {"Lenovo", "6.0"}, {"Supermicro", "1.0"},
+	} {
+		p, err := New(context.Background(), client(t, tc.vendor, tc.firmware), "auto", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !Bind(p, "KEK") {
+			t.Errorf("%s: Bind refused a %T", tc.vendor, p)
+		}
+	}
+	if Bind(nil, "KEK") {
+		t.Error("nothing to bind")
+	}
+}

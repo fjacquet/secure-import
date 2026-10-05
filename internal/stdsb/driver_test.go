@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -343,5 +344,96 @@ func TestILORefusesImportWhenTheDatabaseIsFull(t *testing.T) {
 	_, err := d.DBImport(context.Background(), writeFile(t, testCertDER(t)))
 	if err == nil || !strings.Contains(err.Error(), "16") || s.Count("POST", dbs+"/db/Certificates") != 0 {
 		t.Errorf("err = %v, posts = %d", err, s.Count("POST", dbs+"/db/Certificates"))
+	}
+}
+
+// ---- other databases (ADR 0009)
+
+func registerDB(s *testbmc.Server, id, kind string, members int, extra map[string]any) {
+	doc := map[string]any{kind: testbmc.Link(dbs + "/" + id + "/" + kind)}
+	for k, v := range extra {
+		doc[k] = v
+	}
+	s.JSON("GET", dbs+"/"+id, 200, doc)
+	var ms []any
+	for i := 1; i <= members; i++ {
+		ms = append(ms, testbmc.Link(fmt.Sprintf("%s/%s/%s/%d", dbs, id, kind, i)))
+	}
+	s.JSON("GET", dbs+"/"+id+"/"+kind, 200, map[string]any{"Members": ms})
+}
+
+func TestWithDatabaseListsAndImportsKEKOnly(t *testing.T) {
+	s, d := newFake(t, 0)
+	registerDB(s, "KEK", "Certificates", 2, nil)
+	s.JSON("GET", dbs, 200, map[string]any{"Members": []any{testbmc.Link(dbs + "/db"), testbmc.Link(dbs + "/KEK")}})
+	s.JSON("POST", dbs+"/KEK/Certificates", 201, map[string]any{})
+	d.WithDatabase("KEK")
+	certs, err := d.DBList(context.Background())
+	if err != nil || len(certs) != 2 {
+		t.Fatalf("certs = %+v, err = %v", certs, err)
+	}
+	if _, err := d.DBImport(context.Background(), writeFile(t, testCertDER(t))); err != nil {
+		t.Fatal(err)
+	}
+	if s.Count("POST", dbs+"/KEK/Certificates") != 1 || s.Count("POST", dbs+"/db/Certificates") != 0 {
+		t.Error("the import must go to the KEK collection only")
+	}
+}
+
+func TestDBXListsSignatures(t *testing.T) {
+	s, d := newFake(t, 0)
+	registerDB(s, "dbx", "Signatures", 3, nil)
+	s.JSON("GET", dbs, 200, map[string]any{"Members": []any{testbmc.Link(dbs + "/db"), testbmc.Link(dbs + "/dbx")}})
+	d.WithDatabase("dbx")
+	certs, err := d.DBList(context.Background())
+	if err != nil || len(certs) != 3 || !strings.Contains(certs[0].URI, "/dbx/Signatures/") {
+		t.Errorf("certs = %+v, err = %v", certs, err)
+	}
+}
+
+const sha = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+func TestAddSignaturePostsTheDMTFFields(t *testing.T) {
+	s, d := newFake(t, 0)
+	registerDB(s, "dbx", "Signatures", 0, nil)
+	s.JSON("GET", dbs, 200, map[string]any{"Members": []any{testbmc.Link(dbs + "/dbx")}})
+	s.JSON("POST", dbs+"/dbx/Signatures", 201, map[string]any{})
+	if _, err := d.AddSignature(context.Background(), sha, "77fa9abd-0359-4d32-bd60-28f4e78f784b"); err != nil {
+		t.Fatal(err)
+	}
+	var body string
+	for _, r := range s.Requests() {
+		if r.Method == "POST" {
+			body = r.Body
+		}
+	}
+	for _, want := range []string{`"SignatureString":"` + sha + `"`, `"SignatureType":"EFI_CERT_SHA256_GUID"`,
+		`"SignatureTypeRegistry":"UEFI"`, `"UefiSignatureOwner":"77fa9abd-0359-4d32-bd60-28f4e78f784b"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body %q lacks %s", body, want)
+		}
+	}
+	if _, err := d.AddSignature(context.Background(), "xyz", ""); err == nil {
+		t.Error("a signature that is not 64 hex characters must be refused")
+	}
+	s.JSON("POST", dbs+"/dbx/Signatures", 200, critical("Base.1.0.GeneralError", "nope"))
+	if _, err := d.AddSignature(context.Background(), sha, ""); err == nil || !strings.Contains(err.Error(), "nope") {
+		t.Errorf("a Critical message in a 2xx must fail: %v", err)
+	}
+}
+
+func TestResetKeysOfOneDatabase(t *testing.T) {
+	s, d := newFake(t, 0)
+	target := dbs + "/db/Actions/SecureBootDatabase.ResetKeys"
+	registerDB(s, "db", "Certificates", 1, map[string]any{"Actions": map[string]any{"#SecureBootDatabase.ResetKeys": map[string]any{
+		"target": target, "ResetKeysType@Redfish.AllowableValues": []string{"ResetAllKeysToDefault", "DeleteAllKeys"}}}})
+	s.JSON("GET", dbs, 200, map[string]any{"Members": []any{testbmc.Link(dbs + "/db")}})
+	s.JSON("POST", target, 200, map[string]any{})
+	d.WithDatabase("db")
+	if _, err := d.ResetKeys(context.Background(), "DeleteAllKeys"); err != nil || s.Count("POST", target) != 1 {
+		t.Fatalf("err = %v, posts = %d", err, s.Count("POST", target))
+	}
+	if _, err := d.ResetKeys(context.Background(), "DeletePK"); err == nil || !strings.Contains(err.Error(), "not allowed") {
+		t.Errorf("DeletePK is not a per-database type: %v", err)
 	}
 }

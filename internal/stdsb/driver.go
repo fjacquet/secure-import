@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"slices"
+	"strings"
 
 	"sbmgr/internal/platform"
 	"sbmgr/internal/redfish"
@@ -23,16 +25,24 @@ var driverActions = []string{
 // drivers embed it and override what differs.
 type Driver struct {
 	platform.Unsupported
-	H       Helper
-	name    string
-	maxCert int
+	H        Helper
+	name     string
+	maxCert  int
+	db       string // database for db_list/db_import (default "db")
+	explicit bool   // a database was chosen: reset_keys then targets it, not the whole SecureBoot
 }
 
 var _ platform.Platform = (*Driver)(nil)
 
 // NewDriver builds a driver; maxCertBytes > 0 caps the DER size of an imported certificate.
 func NewDriver(name string, c *redfish.Client, maxCertBytes int) *Driver {
-	return &Driver{H: Helper{C: c, Vendor: name}, name: name, maxCert: maxCertBytes}
+	return &Driver{H: Helper{C: c, Vendor: name}, name: name, maxCert: maxCertBytes, db: "db"}
+}
+
+// WithDatabase binds the driver to one Secure Boot database ("db", "KEK", "PK", "dbx").
+func (d *Driver) WithDatabase(id string) *Driver {
+	d.db, d.explicit = id, true
+	return d
 }
 
 func (d *Driver) Name() string { return d.name }
@@ -58,7 +68,7 @@ func (d *Driver) SetSecureBoot(ctx context.Context, enable bool) (platform.Chang
 	}, nil
 }
 
-func (d *Driver) DBList(ctx context.Context) ([]platform.Cert, error) { return d.H.DBCerts(ctx, "db") }
+func (d *Driver) DBList(ctx context.Context) ([]platform.Cert, error) { return d.H.DBCerts(ctx, d.db) }
 
 // DBImport enrols a PEM or DER certificate file into the "db" database.
 func (d *Driver) DBImport(ctx context.Context, file string) (platform.Change, error) {
@@ -73,7 +83,7 @@ func (d *Driver) DBImport(ctx context.Context, file string) (platform.Change, er
 	if n := DERLen(pemBytes); d.maxCert > 0 && n > d.maxCert {
 		return platform.Change{}, fmt.Errorf("certificate is %d bytes, device limit is %d", n, d.maxCert)
 	}
-	if listed, err := d.H.DBCerts(ctx, "db"); err == nil {
+	if listed, err := d.H.DBCerts(ctx, d.db); err == nil {
 		if uri, ok := AlreadyPresent(listed, data); ok {
 			return platform.Change{Message: "Certificate already present (" + uri + "), nothing imported"}, nil
 		}
@@ -81,7 +91,7 @@ func (d *Driver) DBImport(ctx context.Context, file string) (platform.Change, er
 			return platform.Change{}, fmt.Errorf("the db database already holds %d certificates, the iLO limit", len(listed))
 		}
 	}
-	resp, err := d.H.ImportPEM(ctx, "db", pemBytes)
+	resp, err := d.H.ImportPEM(ctx, d.db, pemBytes)
 	if err != nil {
 		return platform.Change{}, err
 	}
@@ -115,7 +125,13 @@ func (d *Driver) DBDelete(ctx context.Context, uri string) (platform.Change, err
 
 // ResetKeys asks the BMC to reset or delete the Secure Boot keys.
 func (d *Driver) ResetKeys(ctx context.Context, resetType string) (platform.Change, error) {
-	resp, err := d.H.ResetKeys(ctx, resetType)
+	var resp *redfish.Response
+	var err error
+	if d.explicit {
+		resp, err = d.H.DBResetKeys(ctx, d.db, resetType)
+	} else {
+		resp, err = d.H.ResetKeys(ctx, resetType)
+	}
 	if err != nil {
 		return platform.Change{}, err
 	}
@@ -140,3 +156,25 @@ func (d *Driver) ResetKeys(ctx context.Context, resetType string) (platform.Chan
 		RebootRequired: redfish.NeedsReboot(msgs),
 	}, nil
 }
+
+// AddSignature adds a SHA-256 signature to the dbx revocation list. owner is an
+// optional signature-owner GUID.
+func (d *Driver) AddSignature(ctx context.Context, sha256hex, owner string) (platform.Change, error) {
+	if !sha256Hex.MatchString(sha256hex) {
+		return platform.Change{}, fmt.Errorf("a SHA-256 signature is 64 hexadecimal characters, got %q", sha256hex)
+	}
+	resp, err := d.H.ImportSignature(ctx, "dbx", strings.ToLower(sha256hex), owner)
+	if err != nil {
+		return platform.Change{}, err
+	}
+	msgs := redfish.ParseMessages(resp.Body)
+	if _, bad := redfish.FirstCritical(msgs); bad {
+		return platform.Change{}, fmt.Errorf("signature import refused. Messages: %s", redfish.Summarize(msgs))
+	}
+	return platform.Change{
+		Message:        "Signature added to dbx. Messages: " + redfish.Summarize(msgs),
+		RebootRequired: redfish.NeedsReboot(msgs),
+	}, nil
+}
+
+var sha256Hex = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
