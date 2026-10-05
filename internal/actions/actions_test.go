@@ -190,3 +190,13 @@ func TestDBDeleteRefusesNonCertificateURI(t *testing.T) {
 		t.Errorf("r = %+v, calls = %v", r, f.calls)
 	}
 }
+
+func TestDBListMessageCarriesCertificateDetails(t *testing.T) {
+	f := newFake()
+	f.certs = []platform.Cert{{URI: "/a", Subject: "Vendor CA", NotAfter: "2035-01-01"}, {URI: "/b"}}
+	r := Run(context.Background(), f, "ip", platform.ActionDBList, Params{})
+	if !r.Success || !strings.Contains(r.Message, "Found 2 DB certificates") ||
+		!strings.Contains(r.Message, "Vendor CA (expires 2035-01-01)") || !strings.Contains(r.Message, "/b") {
+		t.Errorf("message = %q", r.Message)
+	}
+}

@@ -5,7 +5,9 @@ package stdsb
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"slices"
 	"strings"
 
 	"sbmgr/internal/platform"
@@ -149,7 +152,7 @@ func (h *Helper) DBCerts(ctx context.Context, id string) ([]platform.Cert, error
 	}
 	certs := make([]platform.Cert, len(members))
 	for i, m := range members {
-		certs[i] = platform.Cert{URI: m.ODataID}
+		certs[i] = h.certDetails(ctx, m.ODataID)
 	}
 	return certs, nil
 }
@@ -232,4 +235,81 @@ func DERLen(pemBytes []byte) int {
 		}
 		n = max(n, len(block.Bytes))
 	}
+}
+
+// certDetails reads the optional fields of one Certificate resource. A member
+// that cannot be read is still listed, by URI only.
+func (h *Helper) certDetails(ctx context.Context, uri string) platform.Cert {
+	c := platform.Cert{URI: uri}
+	var d struct {
+		CertificateString string
+		Fingerprint       string
+		Algorithm         string `json:"FingerprintHashAlgorithm"`
+		Subject, Issuer   struct{ CommonName string }
+		ValidNotAfter     string
+	}
+	if err := h.C.GetJSON(ctx, uri, &d); err != nil {
+		return c
+	}
+	c.PEM, c.Fingerprint, c.Algorithm = d.CertificateString, d.Fingerprint, d.Algorithm
+	c.Subject, c.Issuer = d.Subject.CommonName, d.Issuer.CommonName
+	c.NotAfter = d.ValidNotAfter
+	if len(c.NotAfter) > 10 {
+		c.NotAfter = c.NotAfter[:10]
+	}
+	return c
+}
+
+// CertSHA256s returns the hex SHA-256 of the DER of each certificate in a PEM or
+// DER input.
+func CertSHA256s(data []byte) ([]string, error) {
+	pemBytes, err := ToPEM(data)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for rest := pemBytes; ; {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			return out, nil
+		}
+		sum := sha256.Sum256(block.Bytes)
+		out = append(out, hex.EncodeToString(sum[:]))
+	}
+}
+
+// Matches reports whether a listed certificate has the given SHA-256. It compares
+// the certificate text when the BMC returns it, else the Fingerprint field when
+// its algorithm is SHA-256; with neither it cannot tell and returns false.
+func Matches(c platform.Cert, sha256hex string) bool {
+	if c.PEM != "" {
+		if fps, err := CertSHA256s([]byte(c.PEM)); err == nil {
+			return slices.Contains(fps, sha256hex)
+		}
+	}
+	algo := strings.ToLower(strings.ReplaceAll(c.Algorithm, "-", ""))
+	if c.Fingerprint != "" && algo == "sha256" {
+		fp := strings.ToLower(strings.NewReplacer(":", "", " ", "").Replace(c.Fingerprint))
+		return fp == sha256hex
+	}
+	return false
+}
+
+// AlreadyPresent returns the URI of a listed certificate holding every
+// certificate of the input file, if there is one for each.
+func AlreadyPresent(listed []platform.Cert, fileData []byte) (string, bool) {
+	fps, err := CertSHA256s(fileData)
+	if err != nil || len(fps) == 0 {
+		return "", false
+	}
+	var uri string
+	for _, fp := range fps {
+		i := slices.IndexFunc(listed, func(c platform.Cert) bool { return Matches(c, fp) })
+		if i < 0 {
+			return "", false
+		}
+		uri = listed[i].URI
+	}
+	return uri, true
 }

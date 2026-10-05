@@ -3,6 +3,7 @@ package stdsb
 import (
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"os"
 	"path/filepath"
@@ -170,5 +171,43 @@ func TestDBDeleteCriticalMessageIsFailure(t *testing.T) {
 	s.JSON("DELETE", uri, 200, critical("Base.1.0.GeneralError", "cannot delete"))
 	if _, err := d.DBDelete(context.Background(), uri); err == nil || !strings.Contains(err.Error(), "cannot delete") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func memberWithPEM(t *testing.T, s *testbmc.Server, der []byte) {
+	t.Helper()
+	s.JSON("GET", dbs+"/db/Certificates/1", 200, map[string]any{
+		"Id": "1", "CertificateString": string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
+		"Subject": map[string]any{"CommonName": "Vendor CA"}, "ValidNotAfter": "2035-01-01T00:00:00Z"})
+}
+
+func TestDBImportSkipsCertificateAlreadyPresent(t *testing.T) {
+	s, d := newFake(t, 0)
+	der := testCertDER(t)
+	memberWithPEM(t, s, der)
+	ch, err := d.DBImport(context.Background(), writeFile(t, der))
+	if err != nil || !strings.Contains(ch.Message, "already present") || ch.RebootRequired {
+		t.Fatalf("ch = %+v, err = %v", ch, err)
+	}
+	if s.Count("POST", dbs+"/db/Certificates") != 0 {
+		t.Error("an enrolled certificate must not be posted again")
+	}
+}
+
+func TestDBImportProceedsWhenCertificateIsDifferentOrUnknown(t *testing.T) {
+	s, d := newFake(t, 0)
+	s.JSON("POST", dbs+"/db/Certificates", 201, map[string]any{})
+	memberWithPEM(t, s, testCertDER(t)) // another certificate
+	if _, err := d.DBImport(context.Background(), writeFile(t, testCertDER(t))); err != nil || s.Count("POST", dbs+"/db/Certificates") != 1 {
+		t.Errorf("err = %v, posts = %d", err, s.Count("POST", dbs+"/db/Certificates"))
+	}
+}
+
+func TestDBListFillsOptionalDetails(t *testing.T) {
+	s, d := newFake(t, 0)
+	memberWithPEM(t, s, testCertDER(t))
+	certs, err := d.DBList(context.Background())
+	if err != nil || len(certs) != 2 || certs[0].Subject != "Vendor CA" || certs[0].NotAfter != "2035-01-01" || certs[1].Subject != "" {
+		t.Errorf("certs = %+v, err = %v", certs, err)
 	}
 }

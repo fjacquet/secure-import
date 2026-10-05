@@ -49,7 +49,7 @@ func runDB(ctx context.Context, p platform.Platform, action string, par Params, 
 			return
 		}
 		r.Success, r.CertCount = true, len(certs)
-		r.Message = fmt.Sprintf("Found %d DB certificates", len(certs))
+		r.Message = fmt.Sprintf("Found %d DB certificates", len(certs)) + certDetails(certs)
 	case platform.ActionDBImport:
 		ch, err := p.DBImport(ctx, par.CertFile)
 		finish(r, ch, err)
@@ -167,4 +167,29 @@ func hostFile(file, ip string) string {
 // collection, so a typo cannot delete an account or a session.
 func isCertURI(uri string) bool {
 	return strings.Contains(strings.ToLower(uri), "/certificates/")
+}
+
+// certDetails lists the optional fields BMCs returned, one entry per certificate,
+// so that a fleet audit does not need a separate query. It is empty when no
+// certificate has any detail.
+func certDetails(certs []platform.Cert) string {
+	var parts []string
+	any := false
+	for _, c := range certs {
+		label := c.Subject
+		if label == "" {
+			label = c.URI
+		} else {
+			any = true
+		}
+		if c.NotAfter != "" {
+			label += " (expires " + c.NotAfter + ")"
+			any = true
+		}
+		parts = append(parts, label)
+	}
+	if !any {
+		return ""
+	}
+	return ": " + strings.Join(parts, "; ")
 }

@@ -84,6 +84,9 @@ func (d *Driver) DBImport(ctx context.Context, file string) (platform.Change, er
 	if err != nil {
 		return platform.Change{}, err
 	}
+	if uri, ok := d.oemHas(ctx, data); ok {
+		return platform.Change{Message: "Certificate already present (" + uri + "), nothing imported"}, nil
+	}
 	resp, err := d.c.Upload(ctx, store+"/", "file", filepath.Base(file), data)
 	if err != nil {
 		return platform.Change{}, err
@@ -129,4 +132,32 @@ func (d *Driver) DBDelete(ctx context.Context, uri string) (platform.Change, err
 		}
 	}
 	return platform.Change{Message: "DB certificate deleted successfully"}, nil
+}
+
+// oemHas reports whether the OEM store already holds every certificate of data.
+// The store lists opaque entries, so each one is downloaded and compared by hash;
+// an entry that cannot be read is ignored (the import then goes ahead).
+func (d *Driver) oemHas(ctx context.Context, data []byte) (string, bool) {
+	listed, err := d.oemList(ctx)
+	if err != nil {
+		return "", false
+	}
+	for i, c := range listed {
+		resp, err := d.c.Do(ctx, http.MethodGet, c.URI, http.Header{"Accept": {"application/octet-stream"}}, nil)
+		if err != nil {
+			continue
+		}
+		if fps, err := stdsb.CertSHA256s(resp.Body); err == nil && len(fps) > 0 {
+			listed[i].PEM = string(pemOf(resp.Body))
+		}
+	}
+	return stdsb.AlreadyPresent(listed, data)
+}
+
+func pemOf(b []byte) []byte {
+	p, err := stdsb.ToPEM(b)
+	if err != nil {
+		return nil
+	}
+	return p
 }

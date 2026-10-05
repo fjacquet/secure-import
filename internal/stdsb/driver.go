@@ -69,6 +69,11 @@ func (d *Driver) DBImport(ctx context.Context, file string) (platform.Change, er
 	if n := DERLen(pemBytes); d.maxCert > 0 && n > d.maxCert {
 		return platform.Change{}, fmt.Errorf("certificate is %d bytes, device limit is %d", n, d.maxCert)
 	}
+	if listed, err := d.H.DBCerts(ctx, "db"); err == nil {
+		if uri, ok := AlreadyPresent(listed, data); ok {
+			return platform.Change{Message: "Certificate already present (" + uri + "), nothing imported"}, nil
+		}
+	}
 	resp, err := d.H.ImportPEM(ctx, "db", pemBytes)
 	if err != nil {
 		return platform.Change{}, err

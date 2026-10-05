@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"sbmgr/internal/platform"
 )
 
 func testCertDER(t *testing.T) []byte {
@@ -71,4 +73,46 @@ func TestToPEMRejectsPrivateKeyAndKeepsOnlyCertificates(t *testing.T) {
 	if _, err := ToPEM(append(cert, key...)); err == nil {
 		t.Error("a bundle holding a private key must be rejected")
 	}
+}
+
+func TestCertSHA256sAgreeForPEMAndDER(t *testing.T) {
+	der := testCertDER(t)
+	fromDER, err := CertSHA256s(der)
+	if err != nil || len(fromDER) != 1 {
+		t.Fatalf("der: %v, %v", fromDER, err)
+	}
+	fromPEM, err := CertSHA256s(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+	if err != nil || len(fromPEM) != 1 || fromPEM[0] != fromDER[0] || len(fromDER[0]) != 64 {
+		t.Errorf("pem: %v, %v", fromPEM, err)
+	}
+}
+
+func TestMatchesByPEMOrFingerprintField(t *testing.T) {
+	der := testCertDER(t)
+	fp, _ := CertSHA256s(der)
+	pemStr := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+	colon := strings.ToUpper(strings.Join(splitPairs(fp[0]), ":"))
+	cases := []struct {
+		name string
+		c    platform.Cert
+		want bool
+	}{
+		{"pem", platform.Cert{PEM: pemStr}, true},
+		{"fingerprint with colons", platform.Cert{Fingerprint: colon, Algorithm: "SHA-256"}, true},
+		{"other algorithm is unknown", platform.Cert{Fingerprint: colon, Algorithm: "SHA-1"}, false},
+		{"nothing to compare", platform.Cert{URI: "/x"}, false},
+	}
+	for _, tc := range cases {
+		if got := Matches(tc.c, fp[0]); got != tc.want {
+			t.Errorf("%s: got %v", tc.name, got)
+		}
+	}
+}
+
+func splitPairs(s string) []string {
+	var out []string
+	for i := 0; i+1 < len(s); i += 2 {
+		out = append(out, s[i:i+2])
+	}
+	return out
 }

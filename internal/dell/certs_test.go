@@ -186,3 +186,19 @@ func TestDBDeleteCriticalMessageIsFailure(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestDBImportSkipsCertificateAlreadyInOEMStore(t *testing.T) {
+	s, d := newFake9(t, "")
+	der := realCert(t)
+	s.Handle("GET", store+"/CustSecbootpolicy.1", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(der)
+	})
+	ch, err := d.DBImport(context.Background(), writeFile(t, "c.der", der))
+	if err != nil || !strings.Contains(ch.Message, "already present") {
+		t.Fatalf("ch = %+v, err = %v", ch, err)
+	}
+	if s.Count("POST", store+"/") != 0 {
+		t.Error("nothing must be uploaded")
+	}
+}

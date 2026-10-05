@@ -51,7 +51,15 @@ type Change struct {
 }
 
 // Cert identifies one certificate in a store.
-type Cert struct{ URI string }
+// Cert identifies one certificate in a store. Every field except URI is optional:
+// BMCs populate them unevenly.
+type Cert struct {
+	URI                    string
+	Subject, Issuer        string // common names
+	NotAfter               string // date, YYYY-MM-DD
+	Fingerprint, Algorithm string
+	PEM                    string
+}
 
 // Platform is one vendor driver bound to one BMC.
 type Platform interface {
