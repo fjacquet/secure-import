@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/fjacquet/secure-import/actions/workflows/ci.yml/badge.svg)](https://github.com/fjacquet/secure-import/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
+![Licence](https://img.shields.io/badge/licence-MIT-green)
 ![Statut](https://img.shields.io/badge/statut-alpha-orange)
 ![Dépendances](https://img.shields.io/badge/dépendances-stdlib%20seule-brightgreen)
 ![Binaire](https://img.shields.io/badge/binaire-unique%2C%20sans%20runtime-blue)
@@ -56,6 +57,10 @@ make build        # binaire local dans bin/sbmgr
 make build-all    # linux amd64/arm64, windows amd64, macOS arm64/amd64 (sans CGO, sans runtime)
 make test         # tests contre un faux BMC
 ```
+
+## Licence
+
+[MIT](LICENSE).
 
 ## Documentation
 
