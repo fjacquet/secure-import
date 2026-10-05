@@ -128,3 +128,10 @@ func TestProbeIsAnActionAndWritesChecksAndDump(t *testing.T) {
 		t.Errorf("dump: %v", err)
 	}
 }
+
+func TestVersionFlagPrintsVersionAndExitsZero(t *testing.T) {
+	code, stdout, _ := exec(t, "--version")
+	if code != 0 || !strings.HasPrefix(stdout, "sbmgr ") || !strings.Contains(stdout, version) {
+		t.Errorf("code = %d, stdout = %q", code, stdout)
+	}
+}
