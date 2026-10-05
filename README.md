@@ -87,6 +87,20 @@ gestion non maîtrisé, une personne en position d'interception pourrait se fair
 pour un BMC et capter les identifiants. Utilisez `--ca-file ca.pem` (ou `--verify-tls`
 avec des certificats valides) et des comptes dédiés à Secure Boot.
 
+## Vérifier une release
+
+Chaque release publie les archives par système, `checksums.txt`, la signature de ce fichier
+(`checksums.txt.sigstore.json`, signature « keyless » cosign liée au workflow GitHub), un SBOM
+par archive et une attestation de provenance.
+
+```sh
+sha256sum -c checksums.txt --ignore-missing
+cosign verify-blob --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp 'https://github.com/fjacquet/secure-import/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
+gh attestation verify sbmgr_<version>_linux_amd64.tar.gz --owner fjacquet
+```
+
 ## Compilation
 
 ```sh
