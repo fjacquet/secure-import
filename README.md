@@ -19,9 +19,9 @@ serveurs, par Redfish. Port en Go du script Python `secure_boot_manager.py` (Del
 | Plateforme | Actions v1 | Validation |
 |---|---|---|
 | Dell iDRAC9 | `status`, `enable`, `disable`, `set_policy_custom`, `set_policy_standard`, `db_list`, `db_import`, `db_export`, `db_delete` | Comportement du script en production ; tests simulés |
-| Dell iDRAC10 | `status`, `db_list` | Non validé sur matériel |
+| Dell iDRAC10 | `status`, `db_list`, `db_import`, `db_delete` | Non validé sur matériel |
 | HPE iLO (ProLiant) | `status`, `enable`, `disable`, `db_list`, `db_import`, `db_delete` | Non validé sur matériel |
-| Lenovo XCC | `status`, `enable`, `disable` | Non validé sur matériel |
+| Lenovo XCC | `status`, `enable`, `disable`, `db_list`, `db_import`, `db_delete` | Non validé sur matériel ; l'import exige la politique « Custom Policy » |
 | Supermicro | `status`, `enable`, `disable`, `db_list`, `db_import`, `db_delete` | Non validé sur matériel |
 
 La plateforme est détectée automatiquement depuis Redfish (`--platform` pour la forcer).
@@ -48,3 +48,4 @@ ne le versionnez pas.
   - [0002 — Découverte par liens Redfish](docs/adr/0002-decouverte-par-liens-redfish.md)
   - [0003 — Un driver par plateforme](docs/adr/0003-un-driver-par-plateforme.md)
   - [0004 — Succès lu dans `ExtendedInfo`](docs/adr/0004-succes-lu-dans-extendedinfo.md)
+  - [0005 — Dell : OEM sur iDRAC9, standard sur iDRAC10](docs/adr/0005-dell-methode-import.md)

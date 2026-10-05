@@ -30,15 +30,19 @@ Décisions structurantes : `docs/adr/0001` (Go), `0002` (découverte par liens),
   (`docs/11017-1.30.xx.json`).
 - Doc HPE iLO Redfish (SecureBootDatabases) via Context7.
 - DMTF DSP0266 1.14 (sessions, tâches, ETag, découverte par liens).
+- Projets existants lus pour leur comportement (aucun code copié) : `bmc-toolbox/bmclib`
+  (Apache-2.0), `stmcginnis/gofish` (BSD-3), module Ansible `dellemc.openmanage.idrac_secure_boot`
+  (GPL-3.0) et `dell/iDRAC-Redfish-Scripting`. Aucun ne fait « injection de certificats sur
+  une flotte multi-constructeurs » ; ils ont servi à corriger le design (§7, §11).
 
 ## 3. Périmètre
 
 | Driver | Actions v1 | Statut |
 |---|---|---|
 | `idrac9` | `status`, `enable`, `disable`, `set_policy_custom`, `set_policy_standard`, `db_list`, `db_import`, `db_export`, `db_delete` | Comportement issu du script en production ; tests simulés |
-| `idrac10` | `status`, `db_list` | Lecture seule, d'après l'OpenAPI ; **non validé sur matériel** |
+| `idrac10` | `status`, `db_list`, `db_import`, `db_delete` | Import/suppression par le POST/DELETE standard (méthode du module Ansible Dell) ; d'après l'OpenAPI ; **non validé sur matériel** |
 | `ilo` | `status`, `db_list`, `db_import`, `db_delete`, `enable`, `disable` | Redfish standard d'après la doc HPE ; **non validé sur matériel** |
-| `lenovo` | `status`, `enable`, `disable` | D'après le XCC REST API Guide ; **non validé sur matériel**. Aucune action `db_*` : le guide ne documente pas `SecureBootDatabases` |
+| `lenovo` | `status`, `enable`, `disable`, `db_list`, `db_import`, `db_delete` | `status`/`enable`/`disable` d'après le XCC REST API Guide ; `db_*` par le POST/DELETE standard comme `bmclib`, que le guide ne documente pas ; **non validé sur matériel** |
 | `supermicro` | `status`, `enable`, `disable`, `db_list`, `db_import`, `db_delete` | D'après le guide Redfish Supermicro ; **non validé sur matériel**. Import documenté pour `dbt` seulement ; `db` supposé identique |
 
 Le YAML Supermicro fourni (`super-micro-computer-chassis-api-openapi.yml`) ne couvre que
@@ -47,8 +51,8 @@ sur le guide officiel Redfish 1.22.2-00.04 (User Guide 4.0, PDF de 320 pages).
 
 Une action non prise en charge par un driver produit une ligne de résultat
 `Success=No` avec l'erreur `action not supported on <platform>`, jamais un crash.
-Hors périmètre v1 : reboot automatique, écriture iDRAC10, écriture standard sur
-Dell (voir §11), `PK`/`KEK`/`dbx` en écriture.
+Hors périmètre v1 : reboot automatique, `PK`/`KEK`/`dbx` en écriture, `ResetKeys`,
+écriture standard sur iDRAC9 (iDRAC9 garde le multipart OEM, voir §7).
 
 ## 4. Architecture
 
@@ -56,32 +60,40 @@ Dell (voir §11), `PK`/`KEK`/`dbx` en écriture.
 cmd/sbmgr/            flags, câblage, code de sortie
 internal/inventory/   lecture CSV (BOM), expansion des IP
 internal/redfish/     client : session, découverte, tâches, ExtendedInfo, ETag
-internal/platform/    interface Platform + détection
+internal/platform/    interface Platform, types partagés, noms d'actions
+internal/stdsb/       aide SecureBoot standard (DMTF) + driver générique (ilo, supermicro)
 internal/dell/        drivers idrac9 et idrac10 (OEM Dell isolé ici)
-internal/hpe/         driver ilo (standard)
-internal/lenovo/      driver lenovo (SecureBoot seul, pas de bases de certificats)
-internal/supermicro/  driver supermicro (standard + particularités Supermicro)
+internal/lenovo/      driver lenovo (règle de succès propre à XCC)
+internal/detect/      détection de plateforme et fabrique de drivers
+internal/actions/     orchestration des 9 actions vers un résultat
 internal/report/      CSV (colonnes du Python) et JSON
-internal/runner/      pool de workers
+internal/runner/      pool de workers, cycle de vie des sessions
+internal/testbmc/     faux BMC pour les tests
 ```
+
+Les drivers `ilo` et `supermicro` sont identiques sauf la limite de taille de certificat :
+un seul driver paramétré (`stdsb.Driver`) évite la duplication prévue par l'ADR 0003.
 
 Interface (une par BMC, créée après détection) :
 
 ```go
 type Platform interface {
     Name() string
+    Supports(action string) bool
     Status(ctx context.Context) (Status, error)
     SetSecureBoot(ctx context.Context, enable bool) (Change, error)
     SetPolicy(ctx context.Context, policy string) (Change, error)
     DBList(ctx context.Context) ([]Cert, error)
     DBImport(ctx context.Context, file string) (Change, error)
-    DBExport(ctx context.Context, uri, file string) error
+    DBExport(ctx context.Context, uri, file string) (Change, error)
     DBDelete(ctx context.Context, uri string) (Change, error)
 }
 ```
 
-Un driver renvoie `ErrUnsupported` pour ce qu'il ne gère pas. `Status`, `Change`
-et `Cert` portent les champs nécessaires aux colonnes CSV existantes.
+`Supports` permet à l'orchestrateur de refuser une action sans appel réseau. Un type
+`platform.Unsupported`, embarqué par les drivers, renvoie `ErrUnsupported` pour les
+méthodes non gérées. `Status` porte aussi `PendingPolicy` (valeur en attente dans
+`Bios/Settings`, voir §7).
 
 ## 5. Client Redfish (`internal/redfish`)
 
@@ -101,8 +113,8 @@ et `Cert` portent les champs nécessaires aux colonnes CSV existantes.
   (`^Base\.\d+\.\d+\.Success$`, `^i?DRAC\.\d+\.\d+\.SYS4\d+$`,
   `^Bios\.\d+\.\d+\.BiosPropertyModified$`) ; détection de « restart / reboot »
   dans `Resolution`/`Message`.
-- **ETag** : `If-Match` sur les `PATCH` quand l'ETag est connu ; `428` → relecture
-  de la ressource et nouvel essai (une fois).
+- **ETag** : le `PATCH` part sans `If-Match` ; sur `428 Precondition Required`, relecture
+  de la ressource, reprise de son `ETag` et nouvel essai (une fois).
 - **Tâches** : sur 202, suivre le `Location` tel quel (URI opaque) ; respecter
   `Retry-After` ; état `New`/`Scheduled` avec statut OK = succès « en attente de
   reboot » ; `Completed` = succès ; `Exception`/`Killed` = échec. Délai maximal
@@ -142,27 +154,41 @@ en erreur `cannot detect platform (use --platform)`.
   si le message mentionne restart/reboot.
 - `set_policy_*` : `PATCH` sur la ressource Settings du BIOS avec
   `{"Attributes":{"SecureBootPolicy":P},"@Redfish.SettingsApplyTime":{"ApplyTime":"OnReset"}}` ;
-  garde : si Secure Boot est activé et le mode ≠ `DeployedMode` → refus ; si la
-  politique cible est déjà en place → succès sans PATCH. La garde « Custom exige
-  Secure Boot activé » du changelog est **absente** du code actuel ; on suit le code.
-  Succès exige `Location` et un identifiant de job.
+  garde : si Secure Boot est activé et le mode ≠ `DeployedMode` → refus. La garde
+  « Custom exige Secure Boot activé » du changelog est **absente** du code actuel ; on
+  suit le code. Succès exige `Location` et un identifiant de job.
+  **Idempotence corrigée** : le script saute l'écriture si la politique *appliquée*
+  (`Bios`) vaut déjà la cible. Or une autre valeur peut être *en attente* dans
+  `Bios/Settings` (constaté en réel par `bmclib`). Le driver lit donc aussi la valeur en
+  attente (`PendingPolicy`) : succès sans PATCH seulement si appliquée = cible **et**
+  aucune valeur différente en attente ; si une valeur en attente vaut déjà la cible,
+  succès « déjà en attente » sans nouveau PATCH ; sinon PATCH.
 - `db_list` : GET du magasin OEM `DB` (lien `Oem.Dell.Certificates`), champs
   `Certificates` ou `Hash`.
 - `db_import` : `POST multipart/form-data` (champ `file`) sur le magasin OEM `DB`.
-  La spec OpenAPI décrit un corps JSON, mais le script fonctionne en multipart
-  (changelog n° 4) : on garde le multipart. Succès = regex ExtendedInfo ou HTTP 2xx.
+  La spec OpenAPI décrit un corps JSON avec `CryptographicHash` obligatoire, et le
+  script Dell officiel envoie une partie `text` `{"CryptographicHash": ...}` avec le
+  fichier (utile pour les hashs `dbx`). Le script de production n'envoie que `file` et
+  fonctionne pour les certificats `db` (changelog n° 4) : on garde ce multipart.
+  Succès = regex ExtendedInfo ou HTTP 2xx. `--method standard` bascule sur le POST
+  standard (voir idrac10) ; `--method oem` est le défaut sur iDRAC9.
 - `db_export` : `GET` de l'URI du certificat avec `Accept: application/octet-stream`,
   écriture en streaming vers le fichier (bug n° 1).
 - `db_delete` : `DELETE` de l'URI du certificat.
 - `--cert-uri` passe par `sanitizeRedfishPath` (bug n° 5, conservé pour Git Bash).
 
-### idrac10 (lecture seule)
+### idrac10 (standard, d'après l'OpenAPI I10-1.10 et le module Ansible Dell)
 - `status` : mêmes ressources que idrac9 (`SecureBoot`, `Bios`), l'OpenAPI
   les expose avec `{ComputerSystemId}` ; l'identifiant vient de la découverte.
-- `db_list` : collection standard `SecureBootDatabases/db/Certificates`, plus le
-  magasin OEM Dell s'il existe.
+- `db_list` : collection standard `SecureBootDatabases/db/Certificates` ; repli sur le
+  magasin OEM Dell si la collection standard échoue.
+- `db_import` : `POST` JSON `{"CertificateString":"<PEM>","CertificateType":"PEM"}` sur la
+  collection `Certificates` de la base `db`, URI découverte par liens (méthode du module
+  Ansible `idrac_secure_boot`, aussi utilisée par `bmclib`). Fichier DER converti en PEM.
+- `db_delete` : `DELETE` de l'URI du certificat.
+- `--method oem` bascule sur le multipart OEM (hérité d'iDRAC9) ; défaut `standard`.
 - Constat OpenAPI : `SecureBoot.ResetKeys` n'accepte plus que `ResetAllKeysToDefault`,
-  `DeleteAllKeys`, `DeletePK`. Aucune écriture n'est implémentée.
+  `DeleteAllKeys`, `DeletePK`. Pas d'`enable`/`disable` ni de `set_policy_*` en v1.
 
 ### ilo (Redfish standard, d'après doc HPE)
 - `db_list` : `GET SecureBootDatabases/db/Certificates`.
@@ -186,7 +212,14 @@ en erreur `cannot detect platform (use --platform)`.
   message reconnu = échec « réponse inconnue ». Cette règle est propre au driver Lenovo.
 - `ResetKeys` (`ResetAllKeysToDefault`, `DeleteAllKeys`, `DeletePK`) existe mais n'est
   pas exposé comme action en v1 (pas dans le script de référence).
-- `db_*`, `set_policy_*` : non supportés (`SecureBootDatabases` absent du guide).
+- `db_list`, `db_import`, `db_delete` : POST/DELETE standard sur `SecureBootDatabases/db`
+  (comme `bmclib`). Le XCC REST API Guide ne les documente pas : **non validé**.
+  Prérequis connu : l'attribut BIOS `SecureBootConfiguration.SecureBootPolicy` doit valoir
+  « Custom Policy », sinon XCC renvoie l'erreur Lenovo `FQXSFPU4097G`. Cet attribut n'est
+  pas modifiable par l'outil (accessibilité par `/Bios` non confirmée). Une erreur
+  `FQXSFPU4097G` est donc rapportée avec l'indication « politique Secure Boot à passer en
+  Custom Policy (setup UEFI ou OneCLI) ».
+- `set_policy_*` : non supporté.
 
 ### supermicro (d'après le Redfish User Guide 1.22.2-00.04)
 - `status` : `GET /redfish/v1/Systems/1/SecureBoot` (`SecureBootEnable`,
@@ -213,6 +246,7 @@ en erreur `cannot detect platform (use --platform)`.
 sbmgr -i nodes.csv -o out.csv -a <action> [options]
   -f csv|json            format de sortie (défaut csv)
   --platform auto|idrac9|idrac10|ilo|lenovo|supermicro
+  --method oem|standard  méthode d'import/suppression Dell (défaut : oem sur iDRAC9, standard sur iDRAC10)
   --cert-uri URI         db_export, db_delete
   --cert-file PATH       db_import, db_export
   --concurrency N        défaut 20
@@ -227,7 +261,8 @@ sbmgr -i nodes.csv -o out.csv -a <action> [options]
 
 **Entrée CSV** : `start_ip,end_ip,username,password` (BOM toléré). `start_ip` et
 `end_ip` peuvent différer sur n'importe quel octet ; `start_ip` peut être un CIDR
-(`end_ip` vide). Les anciens fichiers restent valides.
+(`end_ip` vide). Les anciens fichiers restent valides. Une ligne ne peut pas dépasser
+4096 adresses (erreur claire au-delà).
 
 **Sortie CSV** : colonnes du Python, dans le même ordre (pour les actions
 `db_*` : `IP Address, Action, Success, Message, Error, Certificate Count`), plus une
@@ -267,15 +302,17 @@ a échoué, 2 en cas d'erreur d'usage.
 1. Détection : `Vendor` et `FirmwareVersion` sont tirés des exemples des OpenAPI Dell ;
    la valeur de `Vendor` chez HPE et les plages de firmware iDRAC9 (3 à 7) restent à
    confirmer sur BMC réels.
-2. iDRAC10 : le POST OEM (multipart ou JSON) et l'écriture standard ne sont pas
-   couverts ; seule la lecture est implémentée.
+2. iDRAC10 : l'import et la suppression par POST/DELETE standard suivent le module Ansible
+   Dell et `bmclib` mais ne sont pas validés sur matériel ; le schéma du corps n'est pas
+   documenté dans l'OpenAPI Dell. Le repli multipart OEM (`--method oem`) n'est pas
+   documenté pour iDRAC10 non plus.
 3. iLO : format de certificat accepté (PEM seul ou DER), reboot après import.
-4. Dell : schéma de corps du `POST` standard `SecureBootDatabases/.../Certificates`
-   (non documenté dans l'OpenAPI) ; l'écriture standard est volontairement absente.
-5. Lenovo : certificats de la base `db` non injectables par Redfish d'après le guide
-   fourni ; si XCC les expose dans une version plus récente, un guide à jour est
-   nécessaire. Le comportement de `PhysicalPresenceError` (RPP) en pratique est à
-   observer sur matériel.
+4. iDRAC9 : si `--method standard` fonctionne sur le firmware de la flotte (le POST
+   standard est dans l'OpenAPI 7.00 mais son corps n'y est pas décrit) : à tester avant
+   d'en faire le défaut.
+5. Lenovo : l'import `db` par POST standard (`bmclib`) n'est pas dans le guide XCC fourni ;
+   la condition « Custom Policy » et le code `FQXSFPU4097G` viennent de `bmclib`. Le
+   comportement de `PhysicalPresenceError` (RPP) est à observer sur matériel.
    Supermicro : valeur de `Vendor`, import vers `db` (exemple du guide limité à `dbt`),
    limites par base, besoin de licence DCMS et génération minimale du BMC.
 6. Suppression des garde-fous « Custom exige Secure Boot actif » : comportement du

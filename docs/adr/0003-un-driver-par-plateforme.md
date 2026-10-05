@@ -31,6 +31,7 @@ non gérée renvoie `ErrUnsupported`, qui devient une ligne de résultat, jamais
 ## Conséquences
 
 - Plus de packages qu'un script unique, mais chacun est testable avec son faux BMC.
-- Deux drivers (HPE, Supermicro) partagent le même schéma de POST ; une factorisation
-  se fera si la duplication se confirme, pas avant.
+- HPE et Supermicro ont le même schéma de POST et ne diffèrent que par une limite de taille :
+  un seul driver paramétré (`stdsb.Driver`) les couvre. Lenovo et Dell gardent le leur
+  (règle de succès et OEM propres).
 - Ajouter un constructeur exige sa documentation officielle (cf. spec §3).
