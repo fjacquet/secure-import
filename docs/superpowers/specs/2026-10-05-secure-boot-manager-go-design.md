@@ -330,7 +330,9 @@ a échoué ou si une ligne du CSV a été ignorée, 2 en cas d'erreur d'usage ou
 - Les mots de passe et jetons ne sont ni logués ni écrits dans la sortie.
   (Le Python affichait les lignes du CSV d'entrée, mots de passe compris.)
 - Le fichier CSV d'entrée contient des mots de passe en clair : avertissement dans
-  l'aide si ses permissions sont plus larges que `0600` (Unix).
+  l'aide si ses permissions sont plus larges que `0600` (Unix). Choix assumé (décision du
+  propriétaire) : pas de coffre, de variable d'environnement ni de chiffrement du CSV ;
+  l'avertissement de permissions est la seule protection prévue.
 - `SYS011` (« Pending configuration values are already committed ») est rapporté
   tel quel : deux changements BIOS en attente exigent deux cycles de reboot.
 
