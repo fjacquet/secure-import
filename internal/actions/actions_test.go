@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -198,5 +200,35 @@ func TestDBListMessageCarriesCertificateDetails(t *testing.T) {
 	if !r.Success || !strings.Contains(r.Message, "Found 2 DB certificates") ||
 		!strings.Contains(r.Message, "Vendor CA (expires 2035-01-01)") || !strings.Contains(r.Message, "/b") {
 		t.Errorf("message = %q", r.Message)
+	}
+}
+
+func TestDryRunWritesNothing(t *testing.T) {
+	ctx := context.Background()
+	f := newFake()
+	r := Run(ctx, f, "ip", platform.ActionEnable, Params{DryRun: true})
+	if !r.Success || !strings.Contains(r.ChangeMessage, "DRY RUN") {
+		t.Errorf("enable: %+v", r)
+	}
+	r = Run(ctx, f, "ip", platform.ActionPolicyCustom, Params{DryRun: true})
+	if !r.Success || !strings.Contains(r.ChangeMessage, "DRY RUN") {
+		t.Errorf("policy: %+v", r)
+	}
+	f.certs = []platform.Cert{{URI: "/redfish/v1/x/Certificates/1"}}
+	if r = Run(ctx, f, "ip", platform.ActionDBDelete, Params{CertURI: "/redfish/v1/x/Certificates/1", DryRun: true}); !r.Success || !strings.Contains(r.Message, "would delete") {
+		t.Errorf("delete: %+v", r)
+	}
+	if r = Run(ctx, f, "ip", platform.ActionDBDelete, Params{CertURI: "/redfish/v1/x/Certificates/9", DryRun: true}); r.Success || !strings.Contains(r.Error, "not found") {
+		t.Errorf("delete missing: %+v", r)
+	}
+	bad := filepath.Join(t.TempDir(), "bad.pem")
+	_ = os.WriteFile(bad, []byte("junk"), 0o600)
+	if r = Run(ctx, f, "ip", platform.ActionDBImport, Params{CertFile: bad, DryRun: true}); r.Success {
+		t.Errorf("import of a bad file must fail even in a dry run: %+v", r)
+	}
+	for _, c := range f.calls {
+		if c != "status" {
+			t.Errorf("a dry run made the write call %q", c)
+		}
 	}
 }

@@ -5,15 +5,22 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"sbmgr/internal/platform"
 	"sbmgr/internal/redfish"
 	"sbmgr/internal/report"
+	"sbmgr/internal/stdsb"
 )
 
 // Params carries the CLI arguments some actions need.
-type Params struct{ CertURI, CertFile string }
+type Params struct {
+	CertURI, CertFile string
+	// DryRun reads and validates everything but writes nothing: the result
+	// says what would change.
+	DryRun bool
+}
 
 // Run executes action on p and describes the outcome. It never panics on
 // driver errors: every failure becomes r.Error.
@@ -26,7 +33,7 @@ func Run(ctx context.Context, p platform.Platform, ip, action string, par Params
 	if platform.IsDBAction(action) {
 		runDB(ctx, p, action, par, &r)
 	} else {
-		runSecureBoot(ctx, p, action, &r)
+		runSecureBoot(ctx, p, action, par.DryRun, &r)
 	}
 	return r
 }
@@ -51,6 +58,10 @@ func runDB(ctx context.Context, p platform.Platform, action string, par Params, 
 		r.Success, r.CertCount = true, len(certs)
 		r.Message = fmt.Sprintf("Found %d DB certificates", len(certs)) + certDetails(certs)
 	case platform.ActionDBImport:
+		if par.DryRun {
+			dryImport(ctx, p, par.CertFile, r)
+			return
+		}
 		ch, err := p.DBImport(ctx, par.CertFile)
 		finish(r, ch, err)
 	case platform.ActionDBExport:
@@ -65,6 +76,10 @@ func runDB(ctx context.Context, p platform.Platform, action string, par Params, 
 			r.Error = "not a certificate URI: " + par.CertURI
 			return
 		}
+		if par.DryRun {
+			dryDelete(ctx, p, redfish.SanitizePath(par.CertURI), r)
+			return
+		}
 		ch, err := p.DBDelete(ctx, redfish.SanitizePath(par.CertURI))
 		finish(r, ch, err)
 	}
@@ -76,7 +91,7 @@ func setIf(dst *string, v string) {
 	}
 }
 
-func runSecureBoot(ctx context.Context, p platform.Platform, action string, r *report.Result) {
+func runSecureBoot(ctx context.Context, p platform.Platform, action string, dry bool, r *report.Result) {
 	st, err := p.Status(ctx)
 	if err != nil {
 		r.Error = "Failed to get status: " + err.Error()
@@ -97,13 +112,13 @@ func runSecureBoot(ctx context.Context, p platform.Platform, action string, r *r
 	case platform.ActionStatus:
 		r.Success, r.NewStatus, r.NewPolicy = true, r.CurrentStatus, r.CurrentPolicy
 	case platform.ActionPolicyCustom, platform.ActionPolicyStandard:
-		setPolicy(ctx, p, action, st, r)
+		setPolicy(ctx, p, action, st, dry, r)
 	default:
-		setEnable(ctx, p, action, st, r)
+		setEnable(ctx, p, action, st, dry, r)
 	}
 }
 
-func setPolicy(ctx context.Context, p platform.Platform, action string, st platform.Status, r *report.Result) {
+func setPolicy(ctx context.Context, p platform.Platform, action string, st platform.Status, dry bool, r *report.Result) {
 	target := "Custom"
 	if action == platform.ActionPolicyStandard {
 		target = "Standard"
@@ -121,6 +136,11 @@ func setPolicy(ctx context.Context, p platform.Platform, action string, st platf
 		r.ChangeMessage = "Policy change to " + target + " is already pending; reboot to apply"
 		return
 	}
+	if dry {
+		r.Success, r.NewPolicy = true, r.CurrentPolicy
+		r.ChangeMessage = "DRY RUN: would set the Secure Boot policy to " + target
+		return
+	}
 	ch, err := p.SetPolicy(ctx, target)
 	if err != nil {
 		r.Error = "Failed to set policy: " + err.Error()
@@ -136,10 +156,15 @@ func setPolicy(ctx context.Context, p platform.Platform, action string, st platf
 	r.Success = true
 }
 
-func setEnable(ctx context.Context, p platform.Platform, action string, st platform.Status, r *report.Result) {
+func setEnable(ctx context.Context, p platform.Platform, action string, st platform.Status, dry bool, r *report.Result) {
 	target := action == platform.ActionEnable
 	if st.Enabled == target {
 		r.Success, r.NewStatus = true, r.CurrentStatus
+		return
+	}
+	if dry {
+		r.Success, r.NewStatus = true, r.CurrentStatus
+		r.ChangeMessage = fmt.Sprintf("DRY RUN: would set SecureBootEnable to %v", target)
 		return
 	}
 	ch, err := p.SetSecureBoot(ctx, target)
@@ -192,4 +217,39 @@ func certDetails(certs []platform.Cert) string {
 		return ""
 	}
 	return ": " + strings.Join(parts, "; ")
+}
+
+// dryImport validates the certificate file and says whether it is already enrolled.
+func dryImport(ctx context.Context, p platform.Platform, file string, r *report.Result) {
+	data, err := stdsb.ReadCertFile(file)
+	if err == nil {
+		_, err = stdsb.ToPEM(data)
+	}
+	if err != nil {
+		r.Error = err.Error()
+		return
+	}
+	r.Success = true
+	if listed, err := p.DBList(ctx); err == nil {
+		if uri, ok := stdsb.AlreadyPresent(listed, data); ok {
+			r.Message = "DRY RUN: certificate already present (" + uri + "), nothing would be imported"
+			return
+		}
+	}
+	r.Message = "DRY RUN: would import " + file
+}
+
+// dryDelete checks the certificate is in the store before saying it would be deleted.
+func dryDelete(ctx context.Context, p platform.Platform, uri string, r *report.Result) {
+	listed, err := p.DBList(ctx)
+	if err != nil {
+		r.Error = "Failed to get DB certificates: " + err.Error()
+		return
+	}
+	if !slices.ContainsFunc(listed, func(c platform.Cert) bool { return strings.EqualFold(c.URI, uri) }) {
+		r.Error = "certificate not found in the db store: " + uri
+		return
+	}
+	r.Success = true
+	r.Message = "DRY RUN: would delete " + uri
 }

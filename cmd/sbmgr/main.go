@@ -31,7 +31,7 @@ type options struct {
 	caFile                              string
 	concurrency, retries                int
 	timeout, taskTimeout                time.Duration
-	noWait, verifyTLS, verbose          bool
+	noWait, verifyTLS, verbose, dryRun  bool
 }
 
 var platformNames = []string{"auto", "idrac9", "idrac10", "ilo", "lenovo", "supermicro"}
@@ -82,6 +82,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&o.method, "method", "", "Dell certificate import method: oem or standard (default oem on iDRAC9, standard on iDRAC10)")
 	fs.StringVar(&o.certURI, "cert-uri", "", "certificate URI for db_export and db_delete")
 	fs.StringVar(&o.certFile, "cert-file", "", "certificate file for db_import (PEM or DER, max 64 KiB) and db_export (host IP added to the name)")
+	fs.BoolVar(&o.dryRun, "dry-run", false, "read and validate only: report what would change, write nothing")
 	fs.IntVar(&o.retries, "retries", 2, "extra attempts on transient errors (connection resets on reads, BMC busy answers)")
 	fs.IntVar(&o.concurrency, "concurrency", 20, "hosts processed in parallel")
 	fs.DurationVar(&o.timeout, "timeout", 30*time.Second, "per-request timeout")
@@ -139,7 +140,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	defer stop()
 	results := runner.Run(ctx, hosts, runner.Options{
 		Action:      o.action,
-		Params:      actions.Params{CertURI: o.certURI, CertFile: o.certFile},
+		Params:      actions.Params{CertURI: o.certURI, CertFile: o.certFile, DryRun: o.dryRun},
 		Platform:    o.platform,
 		Method:      o.method,
 		Concurrency: o.concurrency,
