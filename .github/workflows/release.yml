@@ -11,15 +11,15 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: false # no go.sum: the project is stdlib-only
       - name: Test
         run: go test -race -count=1 ./...
       - name: Build every target
-        run: make build-all
+        run: make build-all VERSION="$GITHUB_REF_NAME"
       - name: Checksums
         working-directory: bin
         run: sha256sum sbmgr-* > SHA256SUMS

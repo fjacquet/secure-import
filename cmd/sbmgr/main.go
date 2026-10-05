@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -26,17 +27,20 @@ import (
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 type options struct {
-	input, output, action, format                  string
-	platform, method, certURI, certFile, resetType string
-	caFile                                         string
-	concurrency, retries                           int
-	timeout, taskTimeout                           time.Duration
-	noWait, verifyTLS, verbose, dryRun, confirm    bool
+	input, output, action, format                            string
+	platform, method, certURI, certFile, resetType           string
+	caFile                                                   string
+	concurrency, retries                                     int
+	timeout, taskTimeout                                     time.Duration
+	noWait, verifyTLS, verbose, dryRun, confirm, showVersion bool
 }
 
 // resetTypes: the first three are the DMTF values; ResetPK, ResetKEK, ResetDB and
 // ResetDBX are documented by the Dell iDRAC9 OpenAPI (ResetDB only touches "db").
 // The BMC's own AllowableValues has the last word.
+// version is set at build time: -ldflags "-X main.version=v0.1.0".
+var version = "dev"
+
 var resetTypes = []string{"ResetAllKeysToDefault", "DeleteAllKeys", "DeletePK", "ResetPK", "ResetKEK", "ResetDB", "ResetDBX"}
 
 var platformNames = []string{"auto", "idrac9", "idrac10", "ilo", "lenovo", "supermicro"}
@@ -103,6 +107,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.BoolVar(&o.noWait, "no-wait", false, "do not follow asynchronous tasks")
 	fs.BoolVar(&o.verifyTLS, "verify-tls", false, "verify BMC TLS certificates (off by default: BMCs are self-signed)")
 	fs.StringVar(&o.caFile, "ca-file", "", "PEM CA bundle used to verify BMC certificates (implies --verify-tls)")
+	fs.BoolVar(&o.showVersion, "version", false, "print the version and exit")
 	fs.BoolVar(&o.verbose, "v", false, "debug logs (never include secrets)")
 	fs.Usage = func() {
 		fmt.Fprintln(stderr, "Usage: sbmgr -i nodes.csv -o out.csv -a <action> [options]")
@@ -114,6 +119,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 0
 		}
 		return 2
+	}
+	if o.showVersion {
+		fmt.Fprintf(stdout, "sbmgr %s (%s, %s/%s)\n", version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+		return 0
 	}
 	if msg := o.validate(); msg != "" {
 		fmt.Fprintln(stderr, "sbmgr:", msg)
