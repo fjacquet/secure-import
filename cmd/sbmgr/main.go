@@ -29,7 +29,7 @@ type options struct {
 	input, output, action, format       string
 	platform, method, certURI, certFile string
 	caFile                              string
-	concurrency                         int
+	concurrency, retries                int
 	timeout, taskTimeout                time.Duration
 	noWait, verifyTLS, verbose          bool
 }
@@ -58,6 +58,8 @@ func (o *options) validate() string {
 		return "db_delete requires --cert-uri"
 	case o.action == platform.ActionDBExport && (o.certURI == "" || o.certFile == ""):
 		return "db_export requires --cert-uri and --cert-file"
+	case o.retries < 0:
+		return "retries must not be negative"
 	case o.concurrency <= 0:
 		return "concurrency must be positive"
 	}
@@ -80,6 +82,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&o.method, "method", "", "Dell certificate import method: oem or standard (default oem on iDRAC9, standard on iDRAC10)")
 	fs.StringVar(&o.certURI, "cert-uri", "", "certificate URI for db_export and db_delete")
 	fs.StringVar(&o.certFile, "cert-file", "", "certificate file for db_import (PEM or DER, max 64 KiB) and db_export (host IP added to the name)")
+	fs.IntVar(&o.retries, "retries", 2, "extra attempts on transient errors (connection resets on reads, BMC busy answers)")
 	fs.IntVar(&o.concurrency, "concurrency", 20, "hosts processed in parallel")
 	fs.DurationVar(&o.timeout, "timeout", 30*time.Second, "per-request timeout")
 	fs.DurationVar(&o.taskTimeout, "task-timeout", 120*time.Second, "how long to follow an asynchronous task")
@@ -141,7 +144,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Method:      o.method,
 		Concurrency: o.concurrency,
 		Client: redfish.Options{
-			Timeout: o.timeout, TaskTimeout: o.taskTimeout, NoWait: o.noWait,
+			Timeout: o.timeout, TaskTimeout: o.taskTimeout, NoWait: o.noWait, Retries: o.retries,
 			VerifyTLS: o.verifyTLS, CAFile: o.caFile,
 		},
 	})

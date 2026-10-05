@@ -12,7 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/textproto"
 	"net/url"
@@ -31,6 +33,8 @@ type Options struct {
 	VerifyTLS    bool          // false: accept self-signed BMC certificates
 	CAFile       string        // PEM bundle; implies verification
 	NoWait       bool          // do not follow asynchronous tasks
+	Retries      int           // extra attempts on transient errors, default 0
+	RetryDelay   time.Duration // first backoff step (doubles each time), default 500ms
 }
 
 // Link is a Redfish {"@odata.id": ...} reference.
@@ -143,7 +147,47 @@ func (c *Client) Do(ctx context.Context, method, path string, header http.Header
 	return c.do(ctx, method, path, header, body, true)
 }
 
+// do retries transient failures: connection resets on reads (never on writes,
+// which may already have been applied) and explicit "BMC busy" refusals. It never
+// retries authentication or certificate errors.
 func (c *Client) do(ctx context.Context, method, path string, header http.Header, body []byte, auth bool) (*Response, error) {
+	delay := c.opts.RetryDelay
+	if delay <= 0 {
+		delay = 500 * time.Millisecond
+	}
+	for attempt := 0; ; attempt++ {
+		resp, err := c.attempt(ctx, method, path, header, body, auth)
+		if err == nil || attempt >= c.opts.Retries || !retryable(ctx, method, err) {
+			return resp, err
+		}
+		slog.Debug("retrying after transient error", "method", method, "path", path, "attempt", attempt+1, "err", err)
+		select {
+		case <-ctx.Done():
+			return resp, err
+		case <-time.After(delay):
+		}
+		delay *= 2
+	}
+}
+
+func retryable(ctx context.Context, method string, err error) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	var he *HTTPError
+	if errors.As(err, &he) {
+		return strings.Contains(he.Body, "ActionParameterValueConflict") ||
+			strings.Contains(he.Body, "UnableToModifyDuringSystemPOST")
+	}
+	if method != http.MethodGet && method != http.MethodHead {
+		return false
+	}
+	var ne net.Error
+	var cert *tls.CertificateVerificationError
+	return errors.As(err, &ne) && !ne.Timeout() && !errors.As(err, &cert)
+}
+
+func (c *Client) attempt(ctx context.Context, method, path string, header http.Header, body []byte, auth bool) (*Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.resolve(path), bytes.NewReader(body))
 	if err != nil {
 		return nil, err

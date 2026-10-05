@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"sbmgr/internal/testbmc"
 )
@@ -217,5 +218,65 @@ func TestHTTPErrorBodyIsTruncated(t *testing.T) {
 	_, err := c.Do(context.Background(), http.MethodGet, "/big", nil, nil)
 	if err == nil || len(err.Error()) > 1000 {
 		t.Errorf("err length = %d", len(err.Error()))
+	}
+}
+
+func dropFirst(n *atomic.Int32, ok func(http.ResponseWriter)) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		if n.Add(1) == 1 {
+			conn, _, _ := w.(http.Hijacker).Hijack()
+			_ = conn.Close() // connection reset before any answer
+			return
+		}
+		ok(w)
+	}
+}
+
+func TestRetriesConnectionErrorsOnReads(t *testing.T) {
+	s := testbmc.New(t)
+	s.Redfish("Dell", "S1", "16G", "7.0.0.0")
+	var n atomic.Int32
+	s.Handle("GET", "/r", dropFirst(&n, func(w http.ResponseWriter) { testbmc.WriteJSON(w, 200, map[string]any{}) }))
+	c := newClient(t, s, Options{Retries: 2, RetryDelay: time.Millisecond})
+	if _, err := c.Do(context.Background(), http.MethodGet, "/r", nil, nil); err != nil || n.Load() != 2 {
+		t.Errorf("err = %v, attempts = %d", err, n.Load())
+	}
+}
+
+func TestDoesNotRetryWritesAfterConnectionError(t *testing.T) {
+	s := testbmc.New(t)
+	s.Redfish("Dell", "S1", "16G", "7.0.0.0")
+	var n atomic.Int32
+	s.Handle("POST", "/w", dropFirst(&n, func(w http.ResponseWriter) { testbmc.WriteJSON(w, 200, map[string]any{}) }))
+	c := newClient(t, s, Options{Retries: 2, RetryDelay: time.Millisecond})
+	if _, err := c.Do(context.Background(), http.MethodPost, "/w", nil, []byte("{}")); err == nil || n.Load() != 1 {
+		t.Errorf("err = %v, attempts = %d: a write may have been applied, so it must not be replayed", err, n.Load())
+	}
+}
+
+func TestRetriesBMCBusyAnswers(t *testing.T) {
+	s := testbmc.New(t)
+	s.Redfish("Dell", "S1", "16G", "7.0.0.0")
+	var n atomic.Int32
+	s.Handle("PATCH", "/p", func(w http.ResponseWriter, _ *http.Request) {
+		if n.Add(1) == 1 {
+			testbmc.WriteJSON(w, 409, map[string]any{"error": map[string]any{"code": "Base.1.12.ActionParameterValueConflict"}})
+			return
+		}
+		testbmc.WriteJSON(w, 200, map[string]any{})
+	})
+	c := newClient(t, s, Options{Retries: 2, RetryDelay: time.Millisecond})
+	if _, err := c.Do(context.Background(), http.MethodPatch, "/p", nil, []byte("{}")); err != nil || n.Load() != 2 {
+		t.Errorf("err = %v, attempts = %d", err, n.Load())
+	}
+}
+
+func TestDoesNotRetryAuthenticationFailures(t *testing.T) {
+	s := testbmc.New(t)
+	s.Redfish("Dell", "S1", "16G", "7.0.0.0")
+	s.JSON("GET", "/a", 401, map[string]any{})
+	c := newClient(t, s, Options{Retries: 3, RetryDelay: time.Millisecond})
+	if _, err := c.Do(context.Background(), http.MethodGet, "/a", nil, nil); err == nil || s.Count("GET", "/a") != 1 {
+		t.Errorf("err = %v, attempts = %d", err, s.Count("GET", "/a"))
 	}
 }
