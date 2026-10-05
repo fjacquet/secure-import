@@ -44,6 +44,7 @@ type Doc struct {
 // Helper reads and writes the SecureBoot tree of one BMC.
 type Helper struct {
 	C      *redfish.Client
+	Vendor string // driver name ("ilo", "supermicro"...), used for vendor-specific hints
 	sbPath string
 }
 
@@ -81,6 +82,8 @@ func (h *Helper) Get(ctx context.Context) (Doc, error) {
 		switch {
 		case strings.Contains(err.Error(), "OemLicenseNotPassed"):
 			return Doc{}, fmt.Errorf("a license is required to use Secure Boot on this BMC (OemLicenseNotPassed): %w", err)
+		case h.Vendor == "supermicro" && errors.As(err, &he) && (he.Status == http.StatusForbidden || he.Status == http.StatusNotFound):
+			return Doc{}, fmt.Errorf("Secure Boot is not supported or not licensed: the SFT-DCMS-SINGLE license may be missing, or the BMC predates SecureBootDatabases (X13/H13 or newer): %w", err)
 		case errors.As(err, &he) && he.Status == http.StatusNotFound:
 			return Doc{}, fmt.Errorf("Secure Boot is not supported by this system (no SecureBoot resource): %w", err)
 		}
