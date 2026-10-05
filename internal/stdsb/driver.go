@@ -10,6 +10,9 @@ import (
 	"sbmgr/internal/redfish"
 )
 
+// iloMaxCerts is the number of certificates an iLO database accepts (HPE documentation).
+const iloMaxCerts = 16
+
 var driverActions = []string{
 	platform.ActionStatus, platform.ActionEnable, platform.ActionDisable,
 	platform.ActionDBList, platform.ActionDBImport, platform.ActionDBDelete,
@@ -29,7 +32,7 @@ var _ platform.Platform = (*Driver)(nil)
 
 // NewDriver builds a driver; maxCertBytes > 0 caps the DER size of an imported certificate.
 func NewDriver(name string, c *redfish.Client, maxCertBytes int) *Driver {
-	return &Driver{H: Helper{C: c}, name: name, maxCert: maxCertBytes}
+	return &Driver{H: Helper{C: c, Vendor: name}, name: name, maxCert: maxCertBytes}
 }
 
 func (d *Driver) Name() string { return d.name }
@@ -74,6 +77,9 @@ func (d *Driver) DBImport(ctx context.Context, file string) (platform.Change, er
 		if uri, ok := AlreadyPresent(listed, data); ok {
 			return platform.Change{Message: "Certificate already present (" + uri + "), nothing imported"}, nil
 		}
+		if d.name == "ilo" && len(listed) >= iloMaxCerts {
+			return platform.Change{}, fmt.Errorf("the db database already holds %d certificates, the iLO limit", len(listed))
+		}
 	}
 	resp, err := d.H.ImportPEM(ctx, "db", pemBytes)
 	if err != nil {
@@ -83,8 +89,12 @@ func (d *Driver) DBImport(ctx context.Context, file string) (platform.Change, er
 	if _, bad := redfish.FirstCritical(msgs); bad {
 		return platform.Change{}, fmt.Errorf("certificate import refused. Messages: %s", redfish.Summarize(msgs))
 	}
+	note := ""
+	if d.name == "supermicro" && resp.Status != http.StatusCreated {
+		note = fmt.Sprintf(" (HTTP %d, the Supermicro guide documents 201)", resp.Status)
+	}
 	return platform.Change{
-		Message:        "Certificate import successful. Messages: " + redfish.Summarize(msgs),
+		Message:        "Certificate import successful" + note + ". Messages: " + redfish.Summarize(msgs),
 		RebootRequired: redfish.NeedsReboot(msgs),
 	}, nil
 }

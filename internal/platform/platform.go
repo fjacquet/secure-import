@@ -41,7 +41,10 @@ type Status struct {
 	// Policy is the applied SecureBootPolicy ("N/A" where the platform has none);
 	// PendingPolicy is a different value staged for the next reboot, or "".
 	Policy, PendingPolicy string
-	CertificatesURI       string
+	// PendingEnabled is a SecureBootEnable value staged for the next boot, when the
+	// platform can read it; nil when unknown or nothing is pending.
+	PendingEnabled  *bool
+	CertificatesURI string
 }
 
 // Change describes an accepted modification.

@@ -299,3 +299,49 @@ func TestResetKeysFollowsTheTaskOf202(t *testing.T) {
 		t.Errorf("ch = %+v, err = %v", ch, err)
 	}
 }
+
+func newFakeVendor(t *testing.T, vendor, name string, dbCerts int) (*testbmc.Server, *Driver) {
+	t.Helper()
+	s := testbmc.New(t)
+	s.Redfish(vendor, "1", "BMC", "1.0")
+	s.StdSecureBoot("1", false, "SetupMode", dbCerts)
+	c, err := redfish.New(s.URL, "admin", "pw", redfish.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, NewDriver(name, c, 0)
+}
+
+func TestSupermicroForbiddenSecureBootMentionsTheLicense(t *testing.T) {
+	s, d := newFakeVendor(t, "Supermicro", "supermicro", 0)
+	s.JSON("GET", sys+"/SecureBoot", 403, map[string]any{})
+	if _, err := d.Status(context.Background()); err == nil || !strings.Contains(err.Error(), "SFT-DCMS-SINGLE") {
+		t.Errorf("err = %v", err)
+	}
+	s.JSON("GET", sys+"/SecureBoot", 404, map[string]any{})
+	if _, err := d.Status(context.Background()); err == nil || !strings.Contains(err.Error(), "SFT-DCMS-SINGLE") {
+		t.Errorf("404: err = %v", err)
+	}
+}
+
+func TestSupermicroImportNotes201Expectation(t *testing.T) {
+	s, d := newFakeVendor(t, "Supermicro", "supermicro", 0)
+	s.JSON("POST", dbs+"/db/Certificates", 200, map[string]any{})
+	ch, err := d.DBImport(context.Background(), writeFile(t, testCertDER(t)))
+	if err != nil || !strings.Contains(ch.Message, "HTTP 200") {
+		t.Fatalf("ch = %+v, err = %v", ch, err)
+	}
+	s.JSON("POST", dbs+"/db/Certificates", 201, map[string]any{})
+	if ch, err = d.DBImport(context.Background(), writeFile(t, testCertDER(t))); err != nil || strings.Contains(ch.Message, "HTTP 20") {
+		t.Errorf("a 201 needs no note: ch = %+v, err = %v", ch, err)
+	}
+}
+
+func TestILORefusesImportWhenTheDatabaseIsFull(t *testing.T) {
+	s, d := newFakeVendor(t, "HPE", "ilo", 16)
+	s.JSON("POST", dbs+"/db/Certificates", 201, map[string]any{})
+	_, err := d.DBImport(context.Background(), writeFile(t, testCertDER(t)))
+	if err == nil || !strings.Contains(err.Error(), "16") || s.Count("POST", dbs+"/db/Certificates") != 0 {
+		t.Errorf("err = %v, posts = %d", err, s.Count("POST", dbs+"/db/Certificates"))
+	}
+}

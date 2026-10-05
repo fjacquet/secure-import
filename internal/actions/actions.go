@@ -163,7 +163,12 @@ func setPolicy(ctx context.Context, p platform.Platform, action string, st platf
 
 func setEnable(ctx context.Context, p platform.Platform, action string, st platform.Status, dry bool, r *report.Result) {
 	target := action == platform.ActionEnable
-	if st.Enabled == target {
+	if st.PendingEnabled != nil && *st.PendingEnabled == target && st.Enabled != target {
+		r.Success, r.NewStatus = true, platform.PendingStatus(map[bool]string{true: "Enabled", false: "Disabled"}[target], true)
+		r.ChangeMessage = "Change to " + map[bool]string{true: "enabled", false: "disabled"}[target] + " is already pending; reboot to apply"
+		return
+	}
+	if st.Enabled == target && (st.PendingEnabled == nil || *st.PendingEnabled == target) {
 		r.Success, r.NewStatus = true, r.CurrentStatus
 		return
 	}

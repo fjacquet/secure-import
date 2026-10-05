@@ -126,7 +126,7 @@ func (d *Driver) DBExport(ctx context.Context, uri, file string) (platform.Chang
 	if len(body) == 0 {
 		return platform.Change{}, fmt.Errorf("exported certificate is empty: %s", uri)
 	}
-	if err := os.WriteFile(file, body, 0o600); err != nil {
+	if err := writeFileAtomic(file, body); err != nil {
 		return platform.Change{}, fmt.Errorf("failed to save certificate: %w", err)
 	}
 	return platform.Change{Message: "DB certificate exported to " + file}, nil
@@ -172,4 +172,22 @@ func pemOf(b []byte) []byte {
 		return nil
 	}
 	return p
+}
+
+// writeFileAtomic writes through a temporary file in the same directory and renames
+// it, so an interrupted run never leaves a truncated certificate. The file is 0600.
+func writeFileAtomic(file string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(file), ".sbmgr-export-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) // no-op after a successful rename
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), file)
 }

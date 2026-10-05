@@ -228,3 +228,20 @@ func TestDBExportOfJSONWithoutCertificateIsAnError(t *testing.T) {
 		t.Error("nothing must be written")
 	}
 }
+
+func TestDBExportLeavesNoTemporaryFile(t *testing.T) {
+	_, d := newFake9(t, "")
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.der")
+	_ = os.WriteFile(out, []byte("old"), 0o600)
+	if _, err := d.DBExport(context.Background(), store+"/CustSecbootpolicy.7", out); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 1 {
+		t.Errorf("directory holds %d entries, want only the exported file", len(entries))
+	}
+	if b, _ := os.ReadFile(out); string(b) == "old" {
+		t.Error("the file was not replaced")
+	}
+}
