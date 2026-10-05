@@ -20,6 +20,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: false # no go.sum: the project is stdlib-only
       - name: Vet
         run: go vet ./...
       - name: Test
@@ -32,6 +33,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: false # no go.sum: the project is stdlib-only
       - name: Formatting
         run: make check
       - name: Cross-build every target

@@ -15,6 +15,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: false # no go.sum: the project is stdlib-only
       - name: Test
         run: go test -race -count=1 ./...
       - name: Build every target
