@@ -7,6 +7,7 @@ make check        # gofmt
 go vet ./...
 go test -race ./...
 make build-all    # 5 cibles, sans CGO
+go test ./internal/stdsb/ -run=NONE -fuzz=FuzzToPEM -fuzztime=30s   # fuzzing (aussi chaque semaine en CI)
 ```
 
 La seule dépendance directe est cobra (ADR 0008) : n'en ajoutez pas sans
