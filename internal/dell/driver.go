@@ -135,11 +135,9 @@ func (d *Driver) SetSecureBoot(ctx context.Context, enable bool) (platform.Chang
 	if !ok {
 		return platform.Change{}, fmt.Errorf("unknown response. Messages: %s", redfish.Summarize(msgs))
 	}
-	reboot := redfish.NeedsReboot(msgs)
-	restart := ""
-	if reboot {
-		restart = " (Server restart required)"
-	}
+	// SecureBootEnable only takes effect on the next boot, whatever the messages say.
+	reboot := true
+	restart := " (Server restart required)"
 	return platform.Change{
 		Message:        fmt.Sprintf("Success%s. Messages: %s", restart, redfish.Summarize(msgs)),
 		RebootRequired: reboot,

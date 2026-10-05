@@ -163,3 +163,12 @@ func TestDBImportRejectsOversizedFile(t *testing.T) {
 		t.Error("nothing must be sent")
 	}
 }
+
+func TestDBDeleteCriticalMessageIsFailure(t *testing.T) {
+	s, d := newFake(t, 0)
+	uri := dbs + "/db/Certificates/1"
+	s.JSON("DELETE", uri, 200, critical("Base.1.0.GeneralError", "cannot delete"))
+	if _, err := d.DBDelete(context.Background(), uri); err == nil || !strings.Contains(err.Error(), "cannot delete") {
+		t.Errorf("err = %v", err)
+	}
+}

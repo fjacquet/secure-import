@@ -177,3 +177,12 @@ func TestDBExportFileIsPrivate(t *testing.T) {
 		t.Errorf("mode = %v", fi)
 	}
 }
+
+func TestDBDeleteCriticalMessageIsFailure(t *testing.T) {
+	s, d := newFake9(t, "")
+	s.JSON("DELETE", store+"/CustSecbootpolicy.1", 200, map[string]any{"@Message.ExtendedInfo": []any{
+		map[string]any{"MessageId": "IDRAC.2.9.SYS403", "Message": "not deleted", "Severity": "Critical"}}})
+	if _, err := d.DBDelete(context.Background(), store+"/CustSecbootpolicy.1"); err == nil || !strings.Contains(err.Error(), "not deleted") {
+		t.Errorf("err = %v", err)
+	}
+}

@@ -128,7 +128,7 @@ func TestSetSecureBootAcceptsEmptyBody(t *testing.T) {
 	s, d := newFake9(t, "")
 	s.JSON("PATCH", sys+"/SecureBoot", 204, nil)
 	ch, err := d.SetSecureBoot(context.Background(), false)
-	if err != nil || ch.RebootRequired {
+	if err != nil || !ch.RebootRequired {
 		t.Fatalf("ch = %+v, err = %v", ch, err)
 	}
 }
@@ -156,5 +156,14 @@ func TestSetSecureBootCriticalBesideSuccessIsFailure(t *testing.T) {
 		map[string]any{"MessageId": "IDRAC.2.9.SYS403", "Message": "bad", "Severity": "Critical"}}})
 	if _, err := d.SetSecureBoot(context.Background(), true); err == nil || !strings.Contains(err.Error(), "bad") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestSetSecureBootEmptyResponseStillNeedsReboot(t *testing.T) {
+	s, d := newFake9(t, "")
+	s.JSON("PATCH", sys+"/SecureBoot", 200, map[string]any{})
+	ch, err := d.SetSecureBoot(context.Background(), true)
+	if err != nil || !ch.RebootRequired {
+		t.Errorf("ch = %+v, err = %v: SecureBootEnable only takes effect on the next boot", ch, err)
 	}
 }

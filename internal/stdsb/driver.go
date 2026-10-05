@@ -85,8 +85,14 @@ func (d *Driver) DBImport(ctx context.Context, file string) (platform.Change, er
 
 // DBDelete removes the certificate at uri.
 func (d *Driver) DBDelete(ctx context.Context, uri string) (platform.Change, error) {
-	if _, err := d.H.C.Do(ctx, http.MethodDelete, uri, nil, nil); err != nil {
+	resp, err := d.H.C.Do(ctx, http.MethodDelete, uri, nil, nil)
+	if err != nil {
 		return platform.Change{}, err
+	}
+	if msgs := redfish.ParseMessages(resp.Body); len(msgs) > 0 {
+		if _, bad := redfish.FirstCritical(msgs); bad {
+			return platform.Change{}, fmt.Errorf("certificate deletion refused. Messages: %s", redfish.Summarize(msgs))
+		}
 	}
 	return platform.Change{Message: "DB certificate deleted successfully"}, nil
 }
