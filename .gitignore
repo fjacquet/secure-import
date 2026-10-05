@@ -7,3 +7,4 @@ docs/*.pdf
 # Input files contain credentials
 *.csv
 !examples/*.example.csv
+.superpowers/
