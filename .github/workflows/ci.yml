@@ -30,6 +30,8 @@ jobs:
         run: go test -race -count=1 ./...
       - name: Cross-build every target
         run: make build-all
+      - name: Known vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
   # After merge: run the tests on every OS (file permissions, renames, paths).
   os-matrix:

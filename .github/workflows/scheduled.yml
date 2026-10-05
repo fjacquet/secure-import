@@ -1,0 +1,45 @@
+name: Scheduled checks
+
+# Vulnerabilities appear without any code change, and fuzzing finds more the longer it runs:
+# both run weekly (and on demand), on top of the per-PR CI.
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  vulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - {pkg: redfish, fn: FuzzParseMessages}
+          - {pkg: stdsb, fn: FuzzToPEM}
+          - {pkg: inventory, fn: FuzzExpand}
+          - {pkg: inventory, fn: FuzzRead}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Fuzz ${{ matrix.target.fn }}
+        run: go test ./internal/${{ matrix.target.pkg }}/ -run=NONE -fuzz='^${{ matrix.target.fn }}$' -fuzztime=120s
+      - name: Keep the failing input
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-${{ matrix.target.fn }}
+          path: internal/${{ matrix.target.pkg }}/testdata/fuzz
