@@ -1,0 +1,85 @@
+package lenovo
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"sbmgr/internal/platform"
+	"sbmgr/internal/redfish"
+	"sbmgr/internal/testbmc"
+)
+
+const sb = "/redfish/v1/Systems/1/SecureBoot"
+
+func newFake(t *testing.T) (*testbmc.Server, *Driver) {
+	t.Helper()
+	s := testbmc.New(t)
+	s.Redfish("Lenovo", "1", "XCC", "6.0")
+	s.StdSecureBoot("1", false, "SetupMode", 1)
+	c, err := redfish.New(s.URL, "USERID", "pw", redfish.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, New(c)
+}
+
+func msg(id, text string) map[string]any {
+	return map[string]any{"@Message.ExtendedInfo": []any{
+		map[string]any{"MessageId": id, "Message": text, "Severity": "Warning", "Resolution": "Reboot the computer system."}}}
+}
+
+func TestSetSecureBootRebootRequiredIsSuccessDespiteHTTP200(t *testing.T) {
+	s, d := newFake(t)
+	s.JSON("PATCH", sb, 200, msg("Base.1.15.RebootRequired", "Changes completed successfully, but these changes will not take effect until next reboot."))
+	ch, err := d.SetSecureBoot(context.Background(), true)
+	if err != nil || !ch.RebootRequired {
+		t.Fatalf("ch = %+v, err = %v", ch, err)
+	}
+}
+
+func TestSetSecureBootPhysicalPresenceErrorIsAFailureDespiteHTTP200(t *testing.T) {
+	s, d := newFake(t)
+	s.JSON("PATCH", sb, 200, msg("Base.1.15.PhysicalPresenceError", "The operation failed because of Remote Physical Presence security requirements."))
+	if _, err := d.SetSecureBoot(context.Background(), true); err == nil || !strings.Contains(err.Error(), "physical presence") {
+		t.Errorf("err = %v, want physical presence failure", err)
+	}
+}
+
+func TestSetSecureBootUnknownResponseIsAFailure(t *testing.T) {
+	s, d := newFake(t)
+	s.JSON("PATCH", sb, 200, map[string]any{})
+	if _, err := d.SetSecureBoot(context.Background(), true); err == nil || !strings.Contains(err.Error(), "unknown response") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestDBImportExplainsFQXSFPU4097G(t *testing.T) {
+	s, d := newFake(t)
+	s.JSON("POST", sb+"/SecureBootDatabases/db/Certificates", 400, msg("FQXSFPU4097G", "Secure Boot policy is not Custom"))
+	p := filepath.Join(t.TempDir(), "c.pem")
+	if err := os.WriteFile(p, []byte("-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := d.DBImport(context.Background(), p)
+	if err == nil || !strings.Contains(err.Error(), "FQXSFPU4097G") || !strings.Contains(err.Error(), "Custom Policy") {
+		t.Errorf("err = %v, want the FQXSFPU4097G hint about Custom Policy", err)
+	}
+}
+
+func TestStatusListAndSupports(t *testing.T) {
+	_, d := newFake(t)
+	st, err := d.Status(context.Background())
+	if err != nil || st.Mode != "SetupMode" || st.Policy != "N/A" {
+		t.Fatalf("st = %+v, err = %v", st, err)
+	}
+	certs, err := d.DBList(context.Background())
+	if err != nil || len(certs) != 1 {
+		t.Fatalf("certs = %+v, err = %v", certs, err)
+	}
+	if d.Name() != "lenovo" || d.Supports(platform.ActionPolicyCustom) || !d.Supports(platform.ActionDBImport) {
+		t.Error("name or Supports() wrong")
+	}
+}
