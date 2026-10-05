@@ -120,6 +120,16 @@ méthodes non gérées. `Status` porte aussi `PendingPolicy` (valeur en attente 
   `Retry-After` ; état `New`/`Scheduled` avec statut OK = succès « en attente de
   reboot » ; `Completed` = succès ; `Exception`/`Killed` = échec. Délai maximal
   `--task-timeout` (défaut 120 s). `--no-wait` désactive le suivi.
+- **Redirections** : jamais suivies (elles pourraient emporter le jeton ou le mot de
+  passe vers un autre hôte) ; un 3xx devient une erreur HTTP.
+- **Nouvelles tentatives** (`--retries`, défaut 2, attente doublée à chaque essai) :
+  coupure de connexion sur une lecture (GET/HEAD), et toute réponse « BMC occupé »
+  (`ActionParameterValueConflict`, `UnableToModifyDuringSystemPOST`). Jamais d'écriture
+  rejouée après une coupure (elle a pu être appliquée), jamais d'erreur d'authentification
+  ni de certificat. Un `Retry-After` plus long que le délai restant donne un dernier
+  sondage à l'échéance.
+- **Limites** : réponses lues jusqu'à 8 Mio ; le corps d'une erreur HTTP est tronqué à
+  512 caractères dans les rapports.
 - **TLS** : vérification désactivée par défaut (BMC auto-signés) ; `--verify-tls`
   et `--ca-file` pour l'activer. Un avertissement sur stderr rappelle à chaque exécution
   que les identifiants peuvent être interceptés sur un réseau non maîtrisé.
@@ -189,8 +199,28 @@ en erreur `cannot detect platform (use --platform)`.
   Ansible `idrac_secure_boot`, aussi utilisée par `bmclib`). Fichier DER converti en PEM.
 - `db_delete` : `DELETE` de l'URI du certificat.
 - `--method oem` bascule sur le multipart OEM (hérité d'iDRAC9) ; défaut `standard`.
-- Constat OpenAPI : `SecureBoot.ResetKeys` n'accepte plus que `ResetAllKeysToDefault`,
-  `DeleteAllKeys`, `DeletePK`. Pas d'`enable`/`disable` ni de `set_policy_*` en v1.
+- Constat OpenAPI : `SecureBoot.ResetKeys` n'accepte que `ResetAllKeysToDefault`,
+  `DeleteAllKeys`, `DeletePK` (par base : les deux premières).
+- `enable`, `disable`, `set_policy_*`, `db_export` et `reset_keys` : mêmes ressources
+  qu'iDRAC9 (`SecureBoot` PATCH, `Bios/Settings` avec `SecureBootPolicy`, collections
+  `Certificates`, `ResetKeys`), vérifiées dans l'OpenAPI 1.30. L'export lit
+  `CertificateString` dans la ressource JSON ; une réponse qui ne contient que des
+  métadonnées (ressource OEM `DellCertificate`) est une erreur.
+
+### Fonctions communes à tous les drivers
+- **Import idempotent** : avant `db_import`, les certificats de la base sont lus et
+  comparés par SHA-256 (texte du certificat, sinon champ `Fingerprint` si son algorithme
+  est SHA-256). Déjà présent : « already present », aucun POST. Sur le magasin OEM Dell,
+  chaque entrée est téléchargée puis comparée. Illisible ou inconnu : l'import a lieu.
+- **`db_list`** : ajoute, quand le BMC les fournit, sujet (CN) et date d'expiration.
+  Seuls `Id`, `CertificateString` et `CertificateType` sont supposés présents.
+- **`status`** : « non pris en charge » quand la ressource `SecureBoot` manque (404) ;
+  « licence requise » sur `OemLicenseNotPassed` (Supermicro).
+- **`reset_keys`** : voir ADR 0006. `--reset-type` et `--confirm` obligatoires ; type
+  validé contre `ResetKeysType@Redfish.AllowableValues` ; une réponse 202 est suivie.
+- **`--dry-run`** : lit et valide tout, n'écrit rien. Le résultat dit ce qui changerait
+  (`DRY RUN: would ...`) ; un fichier de certificat invalide échoue même à blanc ;
+  `db_delete` vérifie que le certificat est dans la base.
 
 ### ilo (Redfish standard, d'après doc HPE)
 - `db_list` : `GET SecureBootDatabases/db/Certificates`.
@@ -250,7 +280,13 @@ sbmgr -i nodes.csv -o out.csv -a <action> [options]
   --platform auto|idrac9|idrac10|ilo|lenovo|supermicro
   --method oem|standard  méthode d'import/suppression Dell (défaut : oem sur iDRAC9, standard sur iDRAC10)
   --cert-uri URI         db_export, db_delete
-  --cert-file PATH       db_import, db_export
+  --cert-file PATH       db_import, db_export (nom suffixé par l'IP de l'hôte)
+  --reset-type TYPE      reset_keys (ResetAllKeysToDefault, DeleteAllKeys, DeletePK, ResetPK,
+                         ResetKEK, ResetDB, ResetDBX)
+  --confirm              obligatoire pour reset_keys (sauf avec --dry-run)
+  --dry-run              ne rien écrire, dire ce qui changerait
+  --retries N            nouvelles tentatives sur erreur transitoire (défaut 2)
+  --version              affiche la version
   --concurrency N        défaut 20
   --timeout 30s          par requête
   --task-timeout 120s    suivi de tâche
@@ -269,11 +305,25 @@ sbmgr -i nodes.csv -o out.csv -a <action> [options]
 **Sortie CSV** : colonnes du Python, dans le même ordre (pour les actions
 `db_*` : `IP Address, Action, Success, Message, Error, Certificate Count`), plus une
 colonne finale `Platform`. Code de sortie 0 si tout a réussi, 1 si au moins un hôte
-a échoué, 2 en cas d'erreur d'usage.
+a échoué ou si une ligne du CSV a été ignorée, 2 en cas d'erreur d'usage ou d'entrée
+(fichier illisible, aucun hôte exploitable).
 
 ## 9. Erreurs et sécurité
 
 - Une erreur sur un hôte n'arrête jamais les autres ; elle devient une ligne de résultat.
+  Une ligne invalide du CSV est signalée sur stderr puis ignorée ; les lignes vides ou
+  `,,,` sont sautées, les lignes courtes complétées, les adresses en double traitées une
+  seule fois (premiers identifiants).
+- Un message `Critical` est un échec sur **toute** écriture, même dans une réponse 2xx
+  (activation, politique, import, suppression, reset).
+- Un fichier de certificat est limité à 64 Kio et doit contenir uniquement des blocs
+  `CERTIFICATE` valides (une clé privée est refusée). `--cert-uri` de `db_export` et
+  `db_delete` doit viser une collection `Certificates`.
+- Les textes venant du BMC qui commencent par `=`, `+`, `-` ou `@` sont préfixés d'une
+  apostrophe dans le CSV (injection de formule).
+- Le fichier exporté est écrit en mode 0600.
+- Un `enable`/`disable` est toujours « en attente de reboot » : `SecureBootEnable` ne
+  s'applique qu'au démarrage suivant, quels que soient les messages.
 - Les mots de passe et jetons ne sont ni logués ni écrits dans la sortie.
   (Le Python affichait les lignes du CSV d'entrée, mots de passe compris.)
 - Le fichier CSV d'entrée contient des mots de passe en clair : avertissement dans
