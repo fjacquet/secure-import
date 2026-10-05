@@ -1,5 +1,6 @@
 # sbmgr
 
+[![CI](https://github.com/fjacquet/secure-import/actions/workflows/ci.yml/badge.svg)](https://github.com/fjacquet/secure-import/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
 ![Statut](https://img.shields.io/badge/statut-alpha-orange)
 ![Dépendances](https://img.shields.io/badge/dépendances-stdlib%20seule-brightgreen)
