@@ -12,7 +12,7 @@ Only the latest published version is supported. The project is in **alpha**.
 
 ## What to know before using it
 
-- **Nothing has been validated on hardware** with this tool. Try `sbmgr probe`, then `sbmgr status` and `sbmgr db list`
+- **Only Dell iDRAC9 and iDRAC10 are validated** (status, enable/disable, policy, `db` list/import/export/delete); every other platform, `reset-keys` and the PK, KEK and dbx databases are not. Try `sbmgr probe`, then `sbmgr status` and `sbmgr db list`
   on a test server before any write, and `--dry-run` before an import, a deletion
   or a `reset_keys`.
 - **TLS verification is disabled by default** (BMCs almost always have a self-signed

@@ -12,16 +12,18 @@
 Manage Secure Boot and the UEFI `db` certificate database across a fleet of
 servers, over Redfish. One binary per OS, nothing to install.
 
-> **Status: alpha.** The code is written and tested against a fake BMC; only the
-> iDRAC9 behavior relies on a script proven in production. No platform has been
-> validated on hardware with this tool: start with `sbmgr probe`, then `sbmgr status` and `sbmgr db list`.
+> **Status: alpha.** Dell iDRAC9 and iDRAC10 are validated: their behavior comes from the
+> scripts proven in production (status, enable/disable, policy, `db` list/import/export/delete),
+> and the code is tested against a fake BMC. Other platforms, `reset-keys` and the other
+> databases (PK, KEK, dbx) are not validated on hardware: start with `sbmgr probe`, then
+> `sbmgr status` and `sbmgr db list`.
 
 ## Supported platforms
 
 | Platform | v1 actions | Validation |
 |---|---|---|
-| Dell iDRAC9 | `status`, `enable`, `disable`, `set_policy_custom`, `set_policy_standard`, `db_list`, `db_import`, `db_export`, `db_delete`, `reset_keys` | Behavior of the production script; simulated tests |
-| Dell iDRAC10 | same actions as iDRAC9 (confirmed by OpenAPI 1.30) | Not validated on hardware; import through the standard POST |
+| Dell iDRAC9 | `status`, `enable`, `disable`, `set_policy_custom`, `set_policy_standard`, `db_list`, `db_import`, `db_export`, `db_delete`, `reset_keys` | **Validated** (production script); simulated tests |
+| Dell iDRAC10 | same actions as iDRAC9 (confirmed by OpenAPI 1.30) | **Validated** (production script); import through the standard POST |
 | HPE iLO (ProLiant) | `status`, `enable`, `disable`, `db_list`, `db_import`, `db_delete`, `reset_keys` | Not validated on hardware |
 | Lenovo XCC | `status`, `enable`, `disable`, `db_list`, `db_import`, `db_delete`, `reset_keys` | Not validated on hardware; import requires the Secure Boot policy to be "Custom Policy" |
 | Supermicro | `status`, `enable`, `disable`, `db_list`, `db_import`, `db_delete`, `reset_keys` | Not validated on hardware |

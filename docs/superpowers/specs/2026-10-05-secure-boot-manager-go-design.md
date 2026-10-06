@@ -39,8 +39,8 @@ one driver per platform, success read from `ExtendedInfo`, and the later ones).
 
 | Driver | v1 actions | Status |
 |---|---|---|
-| `idrac9` | `status`, `enable`, `disable`, `set_policy_custom`, `set_policy_standard`, `db_list`, `db_import`, `db_export`, `db_delete`, `reset_keys` | Behavior taken from the production script; simulated tests |
-| `idrac10` | the 10 actions, same as `idrac9` | Checked in the 1.30 OpenAPI: `SecureBoot` PATCH, `Bios/Settings` (`SecureBootPolicy`), `Certificates` collections, `ResetKeys`. Import/delete through the standard POST/DELETE (Dell Ansible module method); export read from `CertificateString` in the JSON; **not validated on hardware** |
+| `idrac9` | `status`, `enable`, `disable`, `set_policy_custom`, `set_policy_standard`, `db_list`, `db_import`, `db_export`, `db_delete`, `reset_keys` | **Validated**: behavior taken from the production script; simulated tests |
+| `idrac10` | the 10 actions, same as `idrac9` | Checked in the 1.30 OpenAPI: `SecureBoot` PATCH, `Bios/Settings` (`SecureBootPolicy`), `Certificates` collections, `ResetKeys`. Import/delete through the standard POST/DELETE (Dell Ansible module method); export read from `CertificateString` in the JSON; **validated** for the actions of the production iDRAC10 script (reset keys and non-`db` writes excepted) |
 | `ilo` | `status`, `db_list`, `db_import`, `db_delete`, `enable`, `disable` | Standard Redfish based on the HPE docs; **not validated on hardware** |
 | `lenovo` | `status`, `enable`, `disable`, `db_list`, `db_import`, `db_delete` | `status`/`enable`/`disable` based on the XCC REST API Guide; `db_*` through the standard POST/DELETE like `bmclib`, which the guide does not document; **not validated on hardware** |
 | `supermicro` | `status`, `enable`, `disable`, `db_list`, `db_import`, `db_delete` | Based on the Supermicro Redfish guide; **not validated on hardware**. Import documented for `dbt` only; `db` assumed identical |
@@ -392,8 +392,8 @@ failed or if a CSV row was skipped, 2 on a usage or input error
    from HPE's `ilo-redfish-emulator`, BSD-3-Clause, embedded in `internal/testbmc/testdata`)
    reports `Vendor` = `HPE`, so detection of iLO from `Vendor` is confirmed on that
    capture (the data comes from an emulator project, not from a BMC the tool talked to).
-2. iDRAC10: import and delete through the standard POST/DELETE follow the Dell Ansible module
-   and `bmclib` but are not validated on hardware; the body schema is not
+2. iDRAC10: import and delete through the standard POST/DELETE are validated in production by the
+   iDRAC10 script (2026-10); the body schema is not
    documented in the Dell OpenAPI. The OEM multipart fallback (`--method oem`) is not
    documented for iDRAC10 either.
 3. iLO: accepted certificate format (PEM only or DER), reboot after import.
@@ -408,7 +408,7 @@ failed or if a CSV row was skipped, 2 on a usage or input error
 6. Removal of the "Custom requires Secure Boot active" guards: firmware behavior
    to be confirmed.
 7. Implementation status: the code and its tests (fake BMC, Dell OpenAPI specs) are in place;
-   the whole remains not validated on hardware. Recommended trial order: `status`, `db_list`,
+   iDRAC9 and iDRAC10 are validated for the production scripts' actions, everything else is not. Recommended trial order: `status`, `db_list`,
    then a write on a test server.
 8. Other databases (ADR 0009): the POST body on `Signatures` (dbx) reuses the DMTF names and
    is confirmed by no BMC; the actual BMC behavior for PK and KEK writes

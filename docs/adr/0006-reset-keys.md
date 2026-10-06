@@ -32,4 +32,4 @@ priority of zero: they run only on an explicit request from the operator.
 
 - An operator can recover a corrupted `db` without going through the BMC interface.
 - The risk (Setup Mode) is written in the command help and in the README.
-- Behavior not validated on hardware, like everything outside iDRAC9.
+- Behavior not validated on hardware, including on iDRAC9 and iDRAC10: the production scripts do not cover it.
