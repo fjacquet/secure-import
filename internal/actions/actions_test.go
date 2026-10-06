@@ -121,6 +121,7 @@ func TestPolicyIdempotencyConsidersPendingValue(t *testing.T) {
 	ctx := context.Background()
 	// applied == target, nothing pending: no write.
 	f := newFake()
+	f.status.Enabled = true
 	f.status.Policy = "Custom"
 	r := Run(ctx, f, "ip", platform.ActionPolicyCustom, Params{})
 	if !r.Success || r.NewPolicy != "Custom" || slices.Contains(f.calls, "policy=Custom") {
@@ -128,6 +129,7 @@ func TestPolicyIdempotencyConsidersPendingValue(t *testing.T) {
 	}
 	// applied == target but a different value is pending: must write to override it.
 	f = newFake()
+	f.status.Enabled = true
 	f.status.Policy, f.status.PendingPolicy = "Custom", "Standard"
 	f.change = platform.Change{Location: "/t/JID_1", JobID: "JID_1"}
 	r = Run(ctx, f, "ip", platform.ActionPolicyCustom, Params{})
@@ -136,6 +138,7 @@ func TestPolicyIdempotencyConsidersPendingValue(t *testing.T) {
 	}
 	// target already pending: no write, reported as pending.
 	f = newFake()
+	f.status.Enabled = true
 	f.status.PendingPolicy = "Custom"
 	r = Run(ctx, f, "ip", platform.ActionPolicyCustom, Params{})
 	if !r.Success || r.NewPolicy != "Custom (Pending - Reboot Required)" || slices.Contains(f.calls, "policy=Custom") {
@@ -145,18 +148,21 @@ func TestPolicyIdempotencyConsidersPendingValue(t *testing.T) {
 
 func TestPolicyChangeNeedsLocationAndJobID(t *testing.T) {
 	f := newFake()
+	f.status.Enabled = true
 	f.change = platform.Change{Location: "/t/JID_9", JobID: "JID_9", Message: "ok"}
 	r := Run(context.Background(), f, "ip", platform.ActionPolicyCustom, Params{})
 	if !r.Success || r.NewPolicy != "Custom (Pending - Reboot Required)" {
 		t.Errorf("r = %+v", r)
 	}
 	f = newFake()
+	f.status.Enabled = true
 	f.change = platform.Change{Message: "ok"}
 	r = Run(context.Background(), f, "ip", platform.ActionPolicyCustom, Params{})
 	if r.Success || !strings.Contains(r.Error, "missing Location or Job ID") || r.NewPolicy != "Unknown (Task Creation Failed)" {
 		t.Errorf("r = %+v", r)
 	}
 	f = newFake()
+	f.status.Enabled = true
 	f.err = errors.New("SYS011")
 	if r := Run(context.Background(), f, "ip", platform.ActionPolicyCustom, Params{}); r.Success || r.Error != "Failed to set policy: SYS011" {
 		t.Errorf("r = %+v", r)
@@ -217,7 +223,7 @@ func TestDryRunWritesNothing(t *testing.T) {
 	if !r.Success || !strings.Contains(r.ChangeMessage, "DRY RUN") {
 		t.Errorf("enable: %+v", r)
 	}
-	r = Run(ctx, f, "ip", platform.ActionPolicyCustom, Params{DryRun: true})
+	r = Run(ctx, f, "ip", platform.ActionPolicyCustom, Params{DryRun: true, AllowCustomWhenDisabled: true})
 	if !r.Success || !strings.Contains(r.ChangeMessage, "DRY RUN") {
 		t.Errorf("policy: %+v", r)
 	}
@@ -448,5 +454,30 @@ func TestDBXSignatureMembersCanBeDeleted(t *testing.T) {
 	}
 	if r := Run(context.Background(), newFake(), "ip", platform.ActionDBDelete, Params{CertURI: "/redfish/v1/AccountService/Accounts/2", Confirm: true}); r.Success {
 		t.Error("only certificate or signature URIs can be deleted")
+	}
+}
+
+func TestCustomPolicyIsRefusedWhileSecureBootIsDisabledUnlessOverridden(t *testing.T) {
+	ctx := context.Background()
+	f := newFake() // Secure Boot disabled
+	f.change = platform.Change{Location: "/t/JID_1", JobID: "1", RebootRequired: true}
+	r := Run(ctx, f, "ip", platform.ActionPolicyCustom, Params{})
+	if r.Success || !strings.Contains(r.Error, "Secure Boot is disabled") || !strings.Contains(r.Error, "--allow-custom-when-disabled") || slices.Contains(f.calls, "policy=Custom") {
+		t.Errorf("without override: r = %+v, calls = %v", r, f.calls)
+	}
+	r = Run(ctx, f, "ip", platform.ActionPolicyCustom, Params{DryRun: true})
+	if r.Success || !strings.Contains(r.Error, "Secure Boot is disabled") {
+		t.Errorf("dry-run must apply the same guard: r = %+v", r)
+	}
+	r = Run(ctx, f, "ip", platform.ActionPolicyCustom, Params{AllowCustomWhenDisabled: true})
+	if !r.Success || !slices.Contains(f.calls, "policy=Custom") {
+		t.Errorf("with override: r = %+v, calls = %v", r, f.calls)
+	}
+	// Standard is never blocked by this guard.
+	f = newFake()
+	f.status.Policy = "Custom"
+	f.change = platform.Change{Location: "/t/JID_1", JobID: "1"}
+	if r := Run(ctx, f, "ip", platform.ActionPolicyStandard, Params{}); !r.Success {
+		t.Errorf("standard: r = %+v", r)
 	}
 }

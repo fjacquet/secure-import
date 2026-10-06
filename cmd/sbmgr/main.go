@@ -37,7 +37,7 @@ type options struct {
 	caFile, logFile                                                                                string
 	concurrency, retries                                                                           int
 	timeout, taskTimeout                                                                           time.Duration
-	noWait, verifyTLS, verbose, dryRun, confirm, showVersion                                       bool
+	noWait, verifyTLS, verbose, dryRun, confirm, showVersion, allowCustomWhenDisabled              bool
 }
 
 const probeAction = "probe" // read-only: checks what each BMC answers
@@ -186,8 +186,10 @@ func newRootCmd(o *options, stdout, stderr io.Writer, code *int) *cobra.Command 
 	disable := act("secureboot", "disable", "Disable Secure Boot (pending until the next reboot)", "disable", cobra.NoArgs)
 
 	policy := &cobra.Command{GroupID: "secureboot", Use: "policy", Short: "Set the Dell Secure Boot policy (custom or standard)"}
+	policyCustom := act("", "custom", "Stage the Custom policy (applied on the next reboot)", "set_policy_custom", cobra.NoArgs)
+	policyCustom.Flags().BoolVar(&o.allowCustomWhenDisabled, "allow-custom-when-disabled", false, "allow the Custom policy while Secure Boot is disabled (refused by default)")
 	policy.AddCommand(
-		act("", "custom", "Stage the Custom policy (applied on the next reboot)", "set_policy_custom", cobra.NoArgs),
+		policyCustom,
 		act("", "standard", "Stage the Standard policy (applied on the next reboot)", "set_policy_standard", cobra.NoArgs),
 	)
 
@@ -242,6 +244,7 @@ func newRootCmd(o *options, stdout, stderr io.Writer, code *int) *cobra.Command 
 	rf := root.Flags()
 	rf.BoolVar(&o.showVersion, "version", false, "print the version and exit")
 	rf.StringVarP(&o.action, "action", "a", "", "DEPRECATED: use a command instead")
+	rf.BoolVar(&o.allowCustomWhenDisabled, "allow-custom-when-disabled", false, "")
 	rf.StringVar(&o.certFile, "cert-file", "", "")
 	rf.StringVar(&o.certURI, "cert-uri", "", "")
 	rf.StringVar(&o.database, "database", "", "")
@@ -250,7 +253,7 @@ func newRootCmd(o *options, stdout, stderr io.Writer, code *int) *cobra.Command 
 	rf.StringVar(&o.resetType, "reset-type", "", "")
 	rf.BoolVar(&o.confirm, "confirm", false, "")
 	rf.StringVar(&o.probeDump, "probe-dump", "", "")
-	for _, name := range []string{"action", "cert-file", "cert-uri", "database", "signature", "signature-owner", "reset-type", "confirm", "probe-dump"} {
+	for _, name := range []string{"action", "cert-file", "cert-uri", "database", "signature", "signature-owner", "reset-type", "confirm", "probe-dump", "allow-custom-when-disabled"} {
 		_ = rf.MarkHidden(name)
 	}
 
@@ -332,7 +335,7 @@ func execute(o options, stdout, stderr io.Writer) int {
 	started := time.Now()
 	results := runner.Run(ctx, hosts, runner.Options{
 		Action:      o.action,
-		Params:      actions.Params{CertURI: o.certURI, CertFile: o.certFile, DryRun: o.dryRun, ResetType: o.resetType, Capture: o.probeDump != "", Database: o.database, Signature: o.signature, SignatureOwner: o.signatureOwner, Confirm: o.confirm},
+		Params:      actions.Params{CertURI: o.certURI, CertFile: o.certFile, DryRun: o.dryRun, ResetType: o.resetType, Capture: o.probeDump != "", Database: o.database, Signature: o.signature, SignatureOwner: o.signatureOwner, Confirm: o.confirm, AllowCustomWhenDisabled: o.allowCustomWhenDisabled},
 		Platform:    o.platform,
 		Method:      o.method,
 		Database:    o.database,

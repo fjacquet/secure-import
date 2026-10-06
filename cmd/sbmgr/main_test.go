@@ -365,3 +365,13 @@ func TestLogFileThatCannotBeOpenedExitsWithTwo(t *testing.T) {
 		t.Errorf("code = %d, stderr = %q", code, stderr)
 	}
 }
+
+func TestAllowCustomWhenDisabledBelongsToPolicyCustom(t *testing.T) {
+	in, out := csvWith(t)
+	if code, _, stderr := exec(t, "policy", "custom", "-i", in, "-o", out, "--allow-custom-when-disabled", "--timeout", "1s"); code == 2 {
+		t.Errorf("policy custom must accept the flag: %q", stderr)
+	}
+	if code, _, _ := exec(t, "status", "-i", in, "-o", out, "--allow-custom-when-disabled"); code != 2 {
+		t.Errorf("status must reject the flag, code = %d", code)
+	}
+}

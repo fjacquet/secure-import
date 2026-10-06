@@ -166,9 +166,9 @@ as an error `cannot detect platform (use --platform)`.
   if the message mentions restart/reboot.
 - `set_policy_*`: `PATCH` on the BIOS Settings resource with
   `{"Attributes":{"SecureBootPolicy":P},"@Redfish.SettingsApplyTime":{"ApplyTime":"OnReset"}}`;
-  guard: if Secure Boot is enabled and the mode ≠ `DeployedMode` → refuse. The
-  "Custom requires Secure Boot enabled" guard from the changelog is **absent** from the current code; we
-  follow the code. Success requires `Location` and a job identifier.
+  guards: if Secure Boot is enabled and the mode ≠ `DeployedMode` → refuse; `Custom`
+  while Secure Boot is disabled → refuse unless `--allow-custom-when-disabled` (the guard of
+  the production iDRAC10 script, ADR 0013; it was absent from the iDRAC9 script). Success requires `Location` and a job identifier.
   **Idempotence fixed**: the script skips the write if the *applied* policy
   (`Bios`) already equals the target. However, another value may be *pending* in
   `Bios/Settings` (observed in the field by `bmclib`). The driver therefore also reads the pending
