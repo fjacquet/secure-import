@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -24,6 +25,7 @@ type Server struct {
 	mu     sync.Mutex
 	routes map[string]http.HandlerFunc
 	reqs   []Req
+	fsys   fs.FS // optional static mockup tree, see Mount
 }
 
 // New starts a fake BMC closed automatically at test end.
@@ -40,6 +42,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	s.reqs = append(s.reqs, Req{r.Method, r.URL.Path, r.URL.RawQuery, string(body), r.Header.Clone()})
 	h := s.routes[r.Method+" "+r.URL.Path]
 	s.mu.Unlock()
+	if h == nil && s.fsys != nil && s.serveMockup(w, r) {
+		return
+	}
 	if h == nil {
 		WriteJSON(w, 404, map[string]any{"error": map[string]any{
 			"code": "Base.1.12.ResourceMissingAtURI", "message": "no route " + r.Method + " " + r.URL.Path}})

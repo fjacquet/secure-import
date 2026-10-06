@@ -380,8 +380,11 @@ failed or if a CSV row was skipped, 2 on a usage or input error
 ## 11. Unvalidated points (to be confirmed on hardware)
 
 1. Detection: `Vendor` and `FirmwareVersion` are taken from the Dell OpenAPI examples;
-   the `Vendor` value at HPE and the iDRAC9 firmware ranges (3 to 7) remain to be
-   confirmed on real BMCs.
+   the iDRAC9 firmware ranges (3 to 7) and the Supermicro `Vendor` value remain to be
+   confirmed on real BMCs. **Observed**: a captured HPE iLO 7 tree (ProLiant DL360 Gen12,
+   from HPE's `ilo-redfish-emulator`, BSD-3-Clause, embedded in `internal/testbmc/testdata`)
+   reports `Vendor` = `HPE`, so detection of iLO from `Vendor` is confirmed on that
+   capture (the data comes from an emulator project, not from a BMC the tool talked to).
 2. iDRAC10: import and delete through the standard POST/DELETE follow the Dell Ansible module
    and `bmclib` but are not validated on hardware; the body schema is not
    documented in the Dell OpenAPI. The OEM multipart fallback (`--method oem`) is not
@@ -404,3 +407,9 @@ failed or if a CSV row was skipped, 2 on a usage or input error
    is confirmed by no BMC; the actual BMC behavior for PK and KEK writes
    (often reserved for a signed request in User mode) remains to be observed; the list of
    databases and their actions is read first with `-a probe`.
+9. Observed on the iLO 7 capture (read-only integration tests, `internal/probe`): certificates
+   carry `CertificateString`, `Subject`, `Issuer` and `ValidNotAfter` but no `Fingerprint`, so
+   idempotent import must compare the PEM text (it does); `SecureBoot.ResetKeys` exists with no
+   `AllowableValues` (the allowed-value check then passes any type and the BMC decides); the
+   databases `PK`, `KEK`, `db`, `dbx`, `dbt`, `dbr` and their `*Default` counterparts are all
+   exposed. Write behaviour (import, delete, reset) is still not observed.
