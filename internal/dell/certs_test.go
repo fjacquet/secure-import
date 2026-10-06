@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -276,5 +278,48 @@ func TestSignatureAndResetAreDelegatedToTheStandardDriver(t *testing.T) {
 	_, d := newFake9(t, "")
 	if _, err := d.AddSignature(context.Background(), "zz", ""); err == nil || errors.Is(err, platform.ErrUnsupported) {
 		t.Errorf("AddSignature must reach the standard driver (and reject a bad hash), err = %v", err)
+	}
+}
+
+func TestHasCertSeesACertificateInTheOEMStoreWithoutImporting(t *testing.T) {
+	s, d := newFake9(t, "")
+	der := realCert(t)
+	s.Handle("GET", store+"/CustSecbootpolicy.2", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(der)
+	})
+	uri, ok := d.HasCert(context.Background(), der)
+	if !ok || !strings.HasSuffix(uri, "CustSecbootpolicy.2") {
+		t.Errorf("uri = %q, ok = %v", uri, ok)
+	}
+	if _, ok := d.HasCert(context.Background(), realCert(t)); ok {
+		t.Error("a different certificate must not match")
+	}
+}
+
+func TestOEMStoreIsReadInParallelButBounded(t *testing.T) {
+	s, d := newFake9(t, "")
+	var inFlight, peak atomic.Int32
+	var members []any
+	for i := 1; i <= 12; i++ {
+		p := fmt.Sprintf("%s/CustSecbootpolicy.%d", store, i)
+		members = append(members, testbmc.Link(p))
+		s.Handle("GET", p, func(w http.ResponseWriter, _ *http.Request) {
+			n := inFlight.Add(1)
+			for {
+				old := peak.Load()
+				if n <= old || peak.CompareAndSwap(old, n) {
+					break
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+			inFlight.Add(-1)
+			_, _ = w.Write([]byte("not a certificate"))
+		})
+	}
+	s.JSON("GET", store, 200, map[string]any{"Certificates": members})
+	d.HasCert(context.Background(), realCert(t))
+	if p := peak.Load(); p < 2 || p > 4 {
+		t.Errorf("peak concurrent downloads = %d, want between 2 and 4", p)
 	}
 }

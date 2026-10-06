@@ -182,3 +182,13 @@ func (d *Driver) ResetKeysResponse(ctx context.Context, resetType string) (*redf
 	}
 	return d.H.ResetKeys(ctx, resetType)
 }
+
+// HasCert reports whether the certificate(s) in data are already in the chosen database,
+// and where, without importing anything.
+func (d *Driver) HasCert(ctx context.Context, data []byte) (string, bool) {
+	listed, err := d.H.DBCerts(ctx, d.db)
+	if err != nil {
+		return "", false
+	}
+	return AlreadyPresent(listed, data)
+}
