@@ -67,7 +67,7 @@ func yesNo(b bool) string {
 
 // cell neutralises spreadsheet formulas in text that comes from a BMC.
 func cell(s string) string {
-	if s != "" && strings.ContainsRune("=+-@", rune(s[0])) {
+	if s != "" && strings.ContainsRune("=+-@\t\r", rune(s[0])) {
 		return "'" + s
 	}
 	return s
@@ -100,8 +100,8 @@ func WriteCSV(w io.Writer, action string, results []Result) error {
 			"Current Mode", "Current Policy", "New Policy", "Certificates URI", "New Status", "Success",
 			"Change Message", "Error", "Platform"})
 		for _, r := range results {
-			_ = cw.Write([]string{r.IP, r.Action, r.Name, r.Description, r.CurrentStatus, r.CurrentBoot,
-				r.CurrentMode, r.CurrentPolicy, r.NewPolicy, r.CertificatesURI, r.NewStatus, yesNo(r.Success),
+			_ = cw.Write([]string{r.IP, r.Action, cell(r.Name), cell(r.Description), cell(r.CurrentStatus), cell(r.CurrentBoot),
+				cell(r.CurrentMode), cell(r.CurrentPolicy), cell(r.NewPolicy), cell(r.CertificatesURI), cell(r.NewStatus), yesNo(r.Success),
 				cell(r.ChangeMessage), cell(r.Error), r.Platform})
 		}
 	}

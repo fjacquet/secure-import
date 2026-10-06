@@ -2,6 +2,7 @@ package report
 
 import (
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -64,5 +65,25 @@ func TestWriteCSVNeutralisesFormulaCells(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), ",=HYPERLINK") || strings.Contains(buf.String(), ",+cmd") || !strings.Contains(buf.String(), "'=HYPERLINK") {
 		t.Errorf("csv = %q", buf.String())
+	}
+}
+
+func TestWriteCSVNeutralisesBMCFields(t *testing.T) {
+	evil := "=HYPERLINK(\"http://evil/\",\"x\")"
+	r := Result{IP: "10.0.0.1", Action: "status", Name: evil, Description: "+cmd", CurrentStatus: "@x",
+		CurrentBoot: "-1", CurrentMode: "\t=1", CurrentPolicy: "\r=1", NewPolicy: evil,
+		CertificatesURI: evil, NewStatus: evil, Platform: "idrac9"}
+	var b bytes.Buffer
+	if err := WriteCSV(&b, "status", []Result{r}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := csv.NewReader(&b).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, v := range rows[1] {
+		if v != "" && strings.ContainsRune("=+-@\t\r", rune(v[0])) {
+			t.Errorf("column %q starts with a formula character: %q", rows[0][i], v)
+		}
 	}
 }
