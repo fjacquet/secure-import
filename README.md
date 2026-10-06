@@ -14,7 +14,7 @@ servers, over Redfish. One binary per OS, nothing to install.
 
 > **Status: alpha.** The code is written and tested against a fake BMC; only the
 > iDRAC9 behavior relies on a script proven in production. No platform has been
-> validated on hardware with this tool: start with `-a status`, then `-a db_list`.
+> validated on hardware with this tool: start with `sbmgr probe`, then `sbmgr status` and `sbmgr db list`.
 
 ## Supported platforms
 
@@ -33,18 +33,26 @@ reboots a server.
 ## Usage
 
 ```sh
-sbmgr -i examples/nodes.example.csv -o status.csv -a status
-sbmgr -i nodes.csv -o import.csv -a db_import --cert-file ./certs/vendor_db.der
-sbmgr -i nodes.csv -o plan.csv -a db_import --cert-file ./certs/vendor_db.der --dry-run   # nothing is written
-sbmgr -i nodes.csv -o reset.csv -a reset_keys --reset-type ResetDB --confirm              # destructive
+sbmgr status  -i examples/nodes.example.csv -o status.csv
+sbmgr db list -i nodes.csv -o db.csv
+sbmgr db import -i nodes.csv -o import.csv --cert-file ./certs/vendor_db.der
+sbmgr db import -i nodes.csv -o plan.csv --cert-file ./certs/vendor_db.der --dry-run   # nothing is written
+sbmgr reset-keys -i nodes.csv -o reset.csv --reset-type ResetDB --confirm              # destructive
+sbmgr probe -i nodes.csv -o probe.csv --probe-dump probe.json                          # read-only check
 ```
+
+Commands: `status`, `enable`, `disable`, `policy custom|standard`, `reset-keys`,
+`db list|import|export|delete`, `probe`, `version`, `completion`. `sbmgr -h` lists them by
+group; `sbmgr <command> -h` shows the flags of one command.
+
+> The earlier form `sbmgr -i f -o f -a db_list` still works but is deprecated and prints
+> the replacement command ([ADR 0011](docs/adr/0011-subcommand-cli.md)).
 
 Main options (`sbmgr -h` gives the full list):
 
 | Option | Purpose |
 |---|---|
-| `-a`, `--action` | `status`, `enable`, `disable`, `set_policy_custom`, `set_policy_standard`, `db_list`, `db_import`, `db_export`, `db_delete`, `reset_keys` |
-| `-a probe`, `--probe-dump` | read-only check of what each BMC answers; `--probe-dump f.json` keeps the raw, redacted responses |
+| `sbmgr probe`, `--probe-dump` | read-only check of what each BMC answers; `--probe-dump f.json` keeps the raw, redacted responses |
 | `--dry-run` | reads and validates everything, writes nothing: the result says what would change |
 | `--database` | `db` (default), `KEK`, `PK` or `dbx`. PK, KEK and dbx require `--confirm`; PK and KEK also require `SetupMode` or `AuditMode` |
 | `--signature`, `--signature-owner` | dbx: adds a SHA-256 signature (`db_import --database dbx`); POST format not confirmed |
@@ -59,7 +67,7 @@ Main options (`sbmgr -h` gives the full list):
 Exit code: `0` everything succeeded; `1` at least one host failed or a CSV row was
 skipped; `2` usage or input error (unreadable file, no host).
 
-**New platform or new firmware?** Run `-a probe` first: it only reads, and reports
+**New platform or new firmware?** Run `sbmgr probe` first: it only reads, and reports
 what each BMC answers (`OK`, `FAIL`, `ABSENT`).
 
 A `db_import` of an entry that is already present writes nothing ("already present", compared by SHA-256).
@@ -130,3 +138,4 @@ make test         # tests against a fake BMC
   - [0008 — cobra for the command line](docs/adr/0008-cobra-for-the-cli.md)
   - [0009 — Other Secure Boot databases (PK, KEK, dbx)](docs/adr/0009-other-secure-boot-databases.md)
   - [0010 — GoReleaser, signed release, SBOM and provenance](docs/adr/0010-goreleaser-signed-release.md)
+  - [0011 — Subcommands, with `-a` kept as a deprecated alias](docs/adr/0011-subcommand-cli.md)

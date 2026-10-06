@@ -295,30 +295,36 @@ as an error `cannot detect platform (use --platform)`.
 ## 8. CLI
 
 ```
-sbmgr -i nodes.csv -o out.csv -a <action> [options]
-  -f csv|json            output format (default csv)
+sbmgr <command> -i nodes.csv -o out.csv [flags]        (ADR 0011)
+
+Secure Boot:
+  status | enable | disable
+  policy custom|standard
+  reset-keys   --reset-type TYPE [--database NAME] --confirm
+                 (ResetAllKeysToDefault, DeleteAllKeys, DeletePK, ResetPK, ResetKEK, ResetDB,
+                  ResetDBX; --confirm is not needed with --dry-run)
+Certificate databases (group flags: --database NAME, --confirm):
+  db list
+  db import    --cert-file PATH | --signature SHA256 [--signature-owner GUID]
+  db export    --cert-uri URI --cert-file PATH      (file name suffixed with the host IP)
+  db delete    --cert-uri URI
+Diagnostics:
+  probe        [--probe-dump PATH]      read-only check of what each BMC answers (ADR 0007)
+  version | completion bash|zsh|fish|powershell   (ADR 0008)
+
+Flags of every command:
+  -i, --input / -o, --output PATH      input CSV / result file
+  -f, --format csv|json                output format (default csv)
+  --dry-run                            write nothing, say what would change
   --platform auto|idrac9|idrac10|ilo|lenovo|supermicro
-  --method oem|standard  Dell import/delete method (default: oem on iDRAC9, standard on iDRAC10)
-  --cert-uri URI         db_export, db_delete
-  --cert-file PATH       db_import, db_export (name suffixed with the host IP)
-  --database NAME        db (default), KEK, PK or dbx (ADR 0009)
-  --signature SHA256     dbx: signature (64 hex) to add with db_import
-  --signature-owner GUID dbx: signature owner (optional)
-  --reset-type TYPE      reset_keys (ResetAllKeysToDefault, DeleteAllKeys, DeletePK, ResetPK,
-                         ResetKEK, ResetDB, ResetDBX)
-  --confirm              mandatory for reset_keys (except with --dry-run)
-  --dry-run              write nothing, say what would change
-  -a probe               read-only: checks what each BMC answers (ADR 0007)
-  --probe-dump PATH      probe: redacted raw responses, 0600 file
-  --retries N            retries on transient error (default 2)
-  --version, sbmgr version  prints the version
-  sbmgr completion bash|zsh|fish|powershell   shell completion script (ADR 0008)
-  -v, --verbose          detailed logs (never any secret)
-  --concurrency N        default 20
-  --timeout 30s          per request
-  --task-timeout 120s    task tracking
-  --no-wait              do not follow tasks
-  --verify-tls, --ca-file PATH
+  --method oem|standard                Dell import/delete method (default: oem on iDRAC9, standard on iDRAC10)
+  --concurrency N (20)  --timeout 30s  --retries N (2)  --task-timeout 120s  --no-wait
+  --verify-tls  --ca-file PATH         TLS verification (off by default)
+  -v, --verbose                        detailed logs (never any secret)
+  --version                            prints the version
+
+Deprecated (hidden, for existing scripts): -a <action> with the per-action flags on the root
+command; it prints the replacement command.
 ```
 
 `--hashtype` is removed (never used in the script).
@@ -406,7 +412,7 @@ failed or if a CSV row was skipped, 2 on a usage or input error
 8. Other databases (ADR 0009): the POST body on `Signatures` (dbx) reuses the DMTF names and
    is confirmed by no BMC; the actual BMC behavior for PK and KEK writes
    (often reserved for a signed request in User mode) remains to be observed; the list of
-   databases and their actions is read first with `-a probe`.
+   databases and their actions is read first with `sbmgr probe`.
 9. Observed on the iLO 7 capture (read-only integration tests, `internal/probe`): certificates
    carry `CertificateString`, `Subject`, `Issuer` and `ValidNotAfter` but no `Fingerprint`, so
    idempotent import must compare the PEM text (it does); `SecureBoot.ResetKeys` exists with no

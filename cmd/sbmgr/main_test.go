@@ -21,7 +21,7 @@ func TestUsageErrorsExitWithTwo(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"no args", nil, "-i/--input is required"},
+		{"no args", nil, "a command is required"},
 		{"bad action", []string{"-i", "a", "-o", "b", "-a", "explode"}, "unknown action"},
 		{"bad format", []string{"-i", "a", "-o", "b", "-a", "status", "-f", "xml"}, "format must be csv or json"},
 		{"bad platform", []string{"-i", "a", "-o", "b", "-a", "status", "--platform", "hp"}, "unknown platform"},
@@ -45,7 +45,7 @@ func TestUsageErrorsExitWithTwo(t *testing.T) {
 
 func TestHelpExitsZeroAndPointsToProbe(t *testing.T) {
 	code, stdout, _ := exec(t, "-h")
-	if code != 0 || !strings.Contains(stdout, "-a probe") || strings.Contains(stdout, "not validated") {
+	if code != 0 || !strings.Contains(stdout, "sbmgr probe") || strings.Contains(stdout, "not validated") {
 		t.Errorf("code = %d, stdout = %q", code, stdout)
 	}
 }
@@ -153,14 +153,17 @@ func TestCompletionScriptsAreGenerated(t *testing.T) {
 }
 
 func TestFlagValuesAreCompleted(t *testing.T) {
-	cases := []struct{ flag, want string }{
-		{"-a", "db_import"}, {"-a", "probe"}, {"--platform", "supermicro"},
-		{"--method", "standard"}, {"--reset-type", "ResetDB"}, {"-f", "json"},
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"-a"}, "db_import"}, {[]string{"-a"}, "probe"}, {[]string{"--platform"}, "supermicro"},
+		{[]string{"--method"}, "standard"}, {[]string{"reset-keys", "--reset-type"}, "ResetDB"}, {[]string{"-f"}, "json"},
 	}
 	for _, tc := range cases {
-		_, stdout, _ := exec(t, "__complete", tc.flag, "")
+		_, stdout, _ := exec(t, append([]string{"__complete"}, append(tc.args, "")...)...)
 		if !strings.Contains(stdout, tc.want) {
-			t.Errorf("completion of %s lacks %s: %q", tc.flag, tc.want, stdout)
+			t.Errorf("completion of %v lacks %s: %q", tc.args, tc.want, stdout)
 		}
 	}
 }
@@ -192,7 +195,7 @@ func TestDatabaseFlagValidationAndCompletion(t *testing.T) {
 			t.Errorf("%s: code = %d, stderr = %q, want 2 and %q", tc.name, code, stderr, tc.want)
 		}
 	}
-	_, stdout, _ := exec(t, "__complete", "--database", "")
+	_, stdout, _ := exec(t, "__complete", "db", "list", "--database", "")
 	for _, db := range []string{"db", "KEK", "PK", "dbx"} {
 		if !strings.Contains(stdout, db) {
 			t.Errorf("--database completion lacks %s: %q", db, stdout)
@@ -219,5 +222,106 @@ func TestSignatureOwnerNeedsASignature(t *testing.T) {
 	code, _, stderr := exec(t, "-i", "a", "-o", "b", "-a", "db_import", "--database", "dbx", "--cert-file", "c", "--signature-owner", "g")
 	if code != 2 || !strings.Contains(stderr, "--signature-owner") {
 		t.Errorf("code = %d, stderr = %q", code, stderr)
+	}
+}
+
+// ---- subcommands (ADR 0011)
+
+// csvWith writes a one-host CSV and returns the paths used by the command-line tests.
+func csvWith(t *testing.T) (in, out string) {
+	t.Helper()
+	dir := t.TempDir()
+	in = filepath.Join(dir, "in.csv")
+	_ = os.WriteFile(in, []byte("start_ip,end_ip,username,password\n127.0.0.1,,root,pw\n"), 0o600)
+	return in, filepath.Join(dir, "out.csv")
+}
+
+func TestEveryActionIsASubcommand(t *testing.T) {
+	cases := []struct {
+		args   []string
+		action string // the report's Action column
+	}{
+		{[]string{"status"}, "status"}, {[]string{"enable"}, "enable"}, {[]string{"disable"}, "disable"},
+		{[]string{"policy", "custom"}, "set_policy_custom"}, {[]string{"policy", "standard"}, "set_policy_standard"},
+		{[]string{"db", "list"}, "db_list"}, {[]string{"db", "import", "--cert-file", "c.der"}, "db_import"},
+		{[]string{"db", "export", "--cert-uri", "/redfish/v1/x/Certificates/1", "--cert-file", "o.der"}, "db_export"},
+		{[]string{"db", "delete", "--cert-uri", "/redfish/v1/x/Certificates/1"}, "db_delete"},
+		{[]string{"reset-keys", "--reset-type", "ResetDB", "--dry-run"}, "reset_keys"},
+		{[]string{"probe"}, "Check,Status"},
+	}
+	for _, tc := range cases {
+		in, out := csvWith(t)
+		args := append(append([]string{}, tc.args...), "-i", in, "-o", out, "--timeout", "1s", "--retries", "0")
+		code, _, stderr := exec(t, args...)
+		b, _ := os.ReadFile(out)
+		if code != 1 || !strings.Contains(string(b), tc.action) || strings.Contains(stderr, "deprecated") {
+			t.Errorf("%v: code = %d, stderr = %q, out = %q", tc.args, code, stderr, b)
+		}
+	}
+}
+
+func TestDashAStillWorksButIsDeprecated(t *testing.T) {
+	in, out := csvWith(t)
+	code, _, stderr := exec(t, "-i", in, "-o", out, "-a", "db_list", "--timeout", "1s", "--retries", "0")
+	if code != 1 || !strings.Contains(stderr, "deprecated") || !strings.Contains(stderr, "sbmgr db list") {
+		t.Errorf("code = %d, stderr = %q", code, stderr)
+	}
+	if b, _ := os.ReadFile(out); !strings.Contains(string(b), "db_list") {
+		t.Errorf("out = %q", b)
+	}
+}
+
+func TestSubcommandFlagsBelongToTheirCommand(t *testing.T) {
+	cases := []struct{ args []string }{
+		{[]string{"status", "--cert-file", "x"}}, {[]string{"probe", "--confirm"}},
+		{[]string{"db", "list", "--probe-dump", "x"}}, {[]string{"enable", "--reset-type", "ResetDB"}},
+	}
+	for _, tc := range cases {
+		code, _, stderr := exec(t, tc.args...)
+		if code != 2 || !strings.Contains(stderr, "unknown flag") {
+			t.Errorf("%v: code = %d, stderr = %q", tc.args, code, stderr)
+		}
+	}
+}
+
+func TestSubcommandValidationKeepsTheSameMessages(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"status"}, "-i/--input is required"},
+		{[]string{"db", "import", "-i", "a", "-o", "b"}, "db_import requires --cert-file"},
+		{[]string{"db", "delete", "-i", "a", "-o", "b"}, "db_delete requires --cert-uri"},
+		{[]string{"reset-keys", "-i", "a", "-o", "b"}, "reset_keys requires --reset-type"},
+		{[]string{"db", "import", "-i", "a", "-o", "b", "--database", "dbx", "--cert-file", "c"}, "needs --signature"},
+	}
+	for _, tc := range cases {
+		code, _, stderr := exec(t, tc.args...)
+		if code != 2 || !strings.Contains(stderr, tc.want) {
+			t.Errorf("%v: code = %d, stderr = %q, want 2 and %q", tc.args, code, stderr, tc.want)
+		}
+	}
+}
+
+func TestHelpShowsCommandGroupsAndCompletionKnowsTheTree(t *testing.T) {
+	_, stdout, _ := exec(t, "-h")
+	for _, want := range []string{"Secure Boot", "Certificate databases", "Diagnostics", "db ", "policy ", "reset-keys", "probe"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("help lacks %q:\n%s", want, stdout)
+		}
+	}
+	_, comp, _ := exec(t, "__complete", "db", "")
+	for _, sub := range []string{"list", "import", "export", "delete"} {
+		if !strings.Contains(comp, sub) {
+			t.Errorf("`db` completion lacks %s: %q", sub, comp)
+		}
+	}
+	_, comp, _ = exec(t, "__complete", "db", "list", "--database", "")
+	if !strings.Contains(comp, "KEK") {
+		t.Errorf("--database completion under db list: %q", comp)
+	}
+	_, comp, _ = exec(t, "__complete", "reset-keys", "--reset-type", "")
+	if !strings.Contains(comp, "ResetDB") {
+		t.Errorf("--reset-type completion: %q", comp)
 	}
 }
