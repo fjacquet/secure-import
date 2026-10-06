@@ -26,6 +26,8 @@ type Params struct {
 	// Confirm authorises writes the tool treats as dangerous (PK, KEK, dbx, resets).
 	Confirm bool
 	Capture bool // probe: keep a redacted copy of the raw responses
+	// AllowCustomWhenDisabled lets set_policy_custom proceed while Secure Boot is disabled.
+	AllowCustomWhenDisabled bool
 	// DryRun reads and validates everything but writes nothing: the result
 	// says what would change.
 	DryRun bool
@@ -138,16 +140,20 @@ func runSecureBoot(ctx context.Context, p platform.Platform, action string, par 
 	case platform.ActionResetKeys:
 		resetKeys(ctx, p, par, st, r)
 	case platform.ActionPolicyCustom, platform.ActionPolicyStandard:
-		setPolicy(ctx, p, action, st, dry, r)
+		setPolicy(ctx, p, action, st, par.AllowCustomWhenDisabled, dry, r)
 	default:
 		setEnable(ctx, p, action, st, dry, r)
 	}
 }
 
-func setPolicy(ctx context.Context, p platform.Platform, action string, st platform.Status, dry bool, r *report.Result) {
+func setPolicy(ctx context.Context, p platform.Platform, action string, st platform.Status, allowDisabled, dry bool, r *report.Result) {
 	target := "Custom"
 	if action == platform.ActionPolicyStandard {
 		target = "Standard"
+	}
+	if target == "Custom" && !st.Enabled && !allowDisabled {
+		r.Error = "Cannot set Custom policy: Secure Boot is disabled (use --allow-custom-when-disabled to override)"
+		return
 	}
 	if st.Enabled && st.Mode != "DeployedMode" {
 		r.Error = fmt.Sprintf("Cannot change policy: Secure Boot mode is '%s', expected 'DeployedMode'", st.Mode)
