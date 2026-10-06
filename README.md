@@ -62,6 +62,7 @@ Main options (`sbmgr -h` gives the full list):
 | `--concurrency`, `--timeout`, `--task-timeout`, `--no-wait` | parallel hosts (20); per-request timeout (30 s); task tracking duration (120 s); do not track tasks |
 | `--platform`, `--method` | force the platform; Dell import method `oem` or `standard` |
 | `--verify-tls`, `--ca-file` | verify the BMC certificates |
+| `--log-file PATH` | append a JSON-lines audit log (run id, inputs hashes, every write, per-host result; never secrets) |
 | `--version` | binary version |
 
 Exit code: `0` everything succeeded; `1` at least one host failed or a CSV row was
@@ -139,3 +140,4 @@ make test         # tests against a fake BMC
   - [0009 — Other Secure Boot databases (PK, KEK, dbx)](docs/adr/0009-other-secure-boot-databases.md)
   - [0010 — GoReleaser, signed release, SBOM and provenance](docs/adr/0010-goreleaser-signed-release.md)
   - [0011 — Subcommands, with `-a` kept as a deprecated alias](docs/adr/0011-subcommand-cli.md)
+  - [0012 — Audit log with log/slog](docs/adr/0012-audit-log.md)

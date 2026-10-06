@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"sbmgr/internal/actions"
 	"sbmgr/internal/detect"
@@ -68,11 +69,15 @@ func Run(ctx context.Context, hosts []inventory.Host, opt Options) []report.Resu
 // driver becomes an error row instead of killing the run.
 func one(ctx context.Context, h inventory.Host, opt Options) (res report.Result) {
 	res = report.New(h.IP, opt.Action, "")
+	start := time.Now()
 	defer func() {
 		if r := recover(); r != nil {
 			res.Success = false
 			res.Error = fmt.Sprintf("panic: %v", r)
 		}
+		slog.Info("host result", "ip", h.IP, "platform", res.Platform, "action", opt.Action, "database", opt.Database,
+			"dry_run", opt.Params.DryRun, "success", res.Success, "message", res.Message, "change", res.ChangeMessage,
+			"error", res.Error, "ms", time.Since(start).Milliseconds())
 	}()
 	c, err := redfish.New(h.IP, h.Username, h.Password, opt.Client)
 	if err != nil {

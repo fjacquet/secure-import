@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	osuser "os/user"
 	"runtime"
 	"slices"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"sbmgr/internal/actions"
+	"sbmgr/internal/audit"
 	"sbmgr/internal/inventory"
 	"sbmgr/internal/platform"
 	"sbmgr/internal/redfish"
@@ -32,7 +34,7 @@ func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 type options struct {
 	input, output, action, format                                                                  string
 	platform, method, certURI, certFile, resetType, probeDump, database, signature, signatureOwner string
-	caFile                                                                                         string
+	caFile, logFile                                                                                string
 	concurrency, retries                                                                           int
 	timeout, taskTimeout                                                                           time.Duration
 	noWait, verifyTLS, verbose, dryRun, confirm, showVersion                                       bool
@@ -232,6 +234,7 @@ func newRootCmd(o *options, stdout, stderr io.Writer, code *int) *cobra.Command 
 	pf.BoolVar(&o.noWait, "no-wait", false, "do not follow asynchronous tasks")
 	pf.BoolVar(&o.verifyTLS, "verify-tls", false, "verify BMC TLS certificates (off by default: BMCs are self-signed)")
 	pf.StringVar(&o.caFile, "ca-file", "", "PEM CA bundle used to verify BMC certificates (implies --verify-tls)")
+	pf.StringVar(&o.logFile, "log-file", "", "append the run log (JSON lines, mode 0600: who ran what on which host, never secrets) to this file")
 	pf.BoolVarP(&o.verbose, "verbose", "v", false, "debug logs (never include secrets)")
 
 	// Root-only flags: --version, and the deprecated pre-subcommand form (-a plus the
@@ -287,7 +290,18 @@ func execute(o options, stdout, stderr io.Writer) int {
 	if o.verbose {
 		level = slog.LevelDebug
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level})))
+	fileLevel := slog.LevelInfo
+	if o.verbose {
+		fileLevel = slog.LevelDebug
+	}
+	runID := audit.NewRunID()
+	logger, closeLog, err := audit.Open(o.logFile, fileLevel, slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}))
+	if err != nil {
+		fmt.Fprintln(stderr, "sbmgr: cannot open the log file:", err)
+		return 2
+	}
+	defer closeLog()
+	slog.SetDefault(logger.With("run_id", runID))
 
 	if !o.verifyTLS && o.caFile == "" {
 		fmt.Fprintln(stderr, "warning: TLS verification is disabled; credentials can be intercepted on an untrusted network (use --verify-tls or --ca-file)")
@@ -314,6 +328,8 @@ func execute(o options, stdout, stderr io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	logRunStart(o, len(hosts))
+	started := time.Now()
 	results := runner.Run(ctx, hosts, runner.Options{
 		Action:      o.action,
 		Params:      actions.Params{CertURI: o.certURI, CertFile: o.certFile, DryRun: o.dryRun, ResetType: o.resetType, Capture: o.probeDump != "", Database: o.database, Signature: o.signature, SignatureOwner: o.signatureOwner, Confirm: o.confirm},
@@ -343,11 +359,40 @@ func execute(o options, stdout, stderr io.Writer) int {
 			failed++
 		}
 	}
+	slog.Info("run end", "hosts", len(results), "succeeded", len(results)-failed, "failed", failed,
+		"invalid_rows", rowErr != nil, "ms", time.Since(started).Milliseconds())
 	fmt.Fprintf(stdout, "Processing complete. Results saved to %s (%d succeeded, %d failed)\n", o.output, len(results)-failed, failed)
 	if failed > 0 || rowErr != nil {
 		return 1
 	}
 	return 0
+}
+
+// logRunStart records what was asked, never a credential. The certificate file and the
+// CSV are identified by SHA-256 so the run can be tied to the exact inputs.
+func logRunStart(o options, hosts int) {
+	user, host := "", ""
+	if u, err := osuser.Current(); err == nil {
+		user = u.Username
+	}
+	host, _ = os.Hostname()
+	attrs := []any{"version", version, "action", o.action, "database", o.database, "platform", o.platform,
+		"method", o.method, "dry_run", o.dryRun, "confirm", o.confirm, "hosts", hosts,
+		"input", o.input, "input_sha256", audit.FileSHA256(o.input), "output", o.output,
+		"operator", user, "machine", host}
+	if o.certFile != "" {
+		attrs = append(attrs, "cert_file", o.certFile, "cert_sha256", audit.FileSHA256(o.certFile))
+	}
+	if o.certURI != "" {
+		attrs = append(attrs, "cert_uri", o.certURI)
+	}
+	if o.resetType != "" {
+		attrs = append(attrs, "reset_type", o.resetType)
+	}
+	if o.signature != "" {
+		attrs = append(attrs, "signature", o.signature, "signature_owner", o.signatureOwner)
+	}
+	slog.Info("run start", attrs...)
 }
 
 func writeOutput(o options, results []report.Result) error {
