@@ -325,3 +325,43 @@ func TestHelpShowsCommandGroupsAndCompletionKnowsTheTree(t *testing.T) {
 		t.Errorf("--reset-type completion: %q", comp)
 	}
 }
+
+// ---- audit log
+
+func TestLogFileRecordsTheRunWithoutSecrets(t *testing.T) {
+	dir := t.TempDir()
+	in := filepath.Join(dir, "in.csv")
+	if err := os.WriteFile(in, []byte("start_ip,end_ip,username,password\n127.0.0.1,,root,S3cretPW-xyz\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(dir, "audit.log")
+	code, _, stderr := exec(t, "status", "-i", in, "-o", filepath.Join(dir, "o.csv"), "--timeout", "1s", "--concurrency", "1", "--log-file", logPath)
+	if code != 1 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr)
+	}
+	b, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := string(b)
+	for _, want := range []string{`"msg":"run start"`, `"msg":"host result"`, `"msg":"run end"`, `"run_id":"`, `"ip":"127.0.0.1"`,
+		`"action":"status"`, `"input_sha256":"`, `"succeeded":0`, `"failed":1`} {
+		if !strings.Contains(log, want) {
+			t.Errorf("log lacks %s:\n%s", want, log)
+		}
+	}
+	if strings.Contains(log, "S3cretPW-xyz") || strings.Contains(stderr, "S3cretPW-xyz") {
+		t.Error("the password leaked")
+	}
+	if st, _ := os.Stat(logPath); st.Mode().Perm() != 0o600 {
+		t.Errorf("log mode = %v", st.Mode().Perm())
+	}
+}
+
+func TestLogFileThatCannotBeOpenedExitsWithTwo(t *testing.T) {
+	in, out := csvWith(t)
+	code, _, stderr := exec(t, "status", "-i", in, "-o", out, "--log-file", filepath.Join(t.TempDir(), "no", "such", "dir", "x.log"))
+	if code != 2 || !strings.Contains(stderr, "log") {
+		t.Errorf("code = %d, stderr = %q", code, stderr)
+	}
+}

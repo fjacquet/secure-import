@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -299,5 +300,36 @@ func TestRetryDelayIsCapped(t *testing.T) {
 	_, _ = c.Do(ctx, http.MethodGet, "/r", nil, nil)
 	if n.Load() < 20 {
 		t.Errorf("%d attempts in 600 ms: without a cap the delay doubles past a second after ten retries", n.Load())
+	}
+}
+
+func TestWritesAreLoggedWithoutBodyOrCredentials(t *testing.T) {
+	s := testbmc.New(t)
+	s.Redfish("Dell", "S1", "16G", "7.0.0.0")
+	s.JSON("PATCH", "/redfish/v1/x", 200, map[string]any{})
+	var buf strings.Builder
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+	c, err := New(s.URL, "root", "TopSecret-pw", Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	_, _ = c.Do(ctx, http.MethodGet, "/redfish/v1/", nil, nil)
+	_, err = c.SendJSON(ctx, http.MethodPatch, "/redfish/v1/x", map[string]any{"Secret": "BodyValue-123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := buf.String()
+	if !strings.Contains(log, `"msg":"redfish write"`) || !strings.Contains(log, `"method":"PATCH"`) ||
+		!strings.Contains(log, `"path":"/redfish/v1/x"`) || !strings.Contains(log, `"status":200`) {
+		t.Errorf("write not logged:\n%s", log)
+	}
+	if strings.Count(log, `"msg":"redfish write"`) != 1 {
+		t.Errorf("reads must not be logged as writes:\n%s", log)
+	}
+	if strings.Contains(log, "BodyValue-123") || strings.Contains(log, "TopSecret-pw") {
+		t.Errorf("body or password leaked:\n%s", log)
 	}
 }

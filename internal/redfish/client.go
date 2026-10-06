@@ -209,11 +209,14 @@ func (c *Client) attempt(ctx context.Context, method, path string, header http.H
 			req.SetBasicAuth(c.user, c.pass)
 		}
 	}
+	start := time.Now()
 	resp, err := c.hc.Do(req)
 	if err != nil {
+		c.logWrite(method, path, 0, start, err)
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
+	c.logWrite(method, path, resp.StatusCode, start, nil)
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
@@ -228,6 +231,27 @@ func (c *Client) attempt(ctx context.Context, method, path string, header http.H
 		text = text[:maxErrorBody] + "…"
 	}
 	return r, &HTTPError{Status: resp.StatusCode, Body: text}
+}
+
+// logWrite records every request that can change the BMC (anything but GET and HEAD):
+// method, path and status only, never the body or a credential.
+func (c *Client) logWrite(method, path string, status int, start time.Time, err error) {
+	if method == http.MethodGet || method == http.MethodHead {
+		return
+	}
+	attrs := []any{"host", c.host(), "method", method, "path", path, "status", status, "ms", time.Since(start).Milliseconds()}
+	if err != nil {
+		attrs = append(attrs, "err", err.Error())
+	}
+	slog.Info("redfish write", attrs...)
+}
+
+// host is the BMC address without scheme, for log events.
+func (c *Client) host() string {
+	if u, err := url.Parse(c.base); err == nil {
+		return u.Host
+	}
+	return c.base
 }
 
 // GetJSON GETs path and decodes the JSON body into out.

@@ -321,6 +321,7 @@ Flags of every command:
   --concurrency N (20)  --timeout 30s  --retries N (2)  --task-timeout 120s  --no-wait
   --verify-tls  --ca-file PATH         TLS verification (off by default)
   -v, --verbose                        detailed logs (never any secret)
+  --log-file PATH                      JSON-lines audit log, mode 0600 (ADR 0012)
   --version                            prints the version
 
 Deprecated (hidden, for existing scripts): -a <action> with the per-action flags on the root
