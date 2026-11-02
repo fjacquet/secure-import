@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -27,7 +28,8 @@ func TestOpenWritesJSONLinesWithMode0600AndAppends(t *testing.T) {
 	if !strings.HasPrefix(string(b), "{\"old\":1}\n") || !strings.Contains(string(b), `"msg":"hello"`) || !strings.Contains(string(b), `"k":"v"`) {
 		t.Errorf("log = %q", b)
 	}
-	if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
+	// Windows has no POSIX permission bits: it reports every file as 0666.
+	if st, _ := os.Stat(path); runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Errorf("mode = %v, want 0600", st.Mode().Perm())
 	}
 	if console.Len() != 0 {
