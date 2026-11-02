@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -353,7 +354,8 @@ func TestLogFileRecordsTheRunWithoutSecrets(t *testing.T) {
 	if strings.Contains(log, "S3cretPW-xyz") || strings.Contains(stderr, "S3cretPW-xyz") {
 		t.Error("the password leaked")
 	}
-	if st, _ := os.Stat(logPath); st.Mode().Perm() != 0o600 {
+	// Windows has no POSIX permission bits: it reports every file as 0666.
+	if st, _ := os.Stat(logPath); runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Errorf("log mode = %v", st.Mode().Perm())
 	}
 }
